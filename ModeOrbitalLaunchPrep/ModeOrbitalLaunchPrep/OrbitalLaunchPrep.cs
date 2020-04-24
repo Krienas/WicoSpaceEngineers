@@ -21,14 +21,16 @@ namespace IngameScript
 
         void doModeLaunchprep()
         {
-            IMyTextPanel textBlock = textPanelReport;
+ //           IMyTextPanel textPanelReport = this.textPanelReport;
 
-            StatusLog("clear", textBlock);
+            StatusLog("clear", textPanelReport);
 
-            StatusLog(OurName + ":" + moduleName + ":Launch Prep", textBlock);
+            StatusLog(OurName + ":" + moduleName + ":Launch Prep", textPanelReport);
             StatusLog("Planet Gravity: " + dGravity.ToString(velocityFormat) + " g", textPanelReport);
-            //	StatusLog("Calculated Simspeed=" + fSimSpeed.ToString(velocityFormat), textBlock);
-            //	StatusLog("->If Calculated Simspeed does not match \n actual, use SetSimSpeed command to \n set the actual current simspeed.\n", textBlock);
+
+            Echo(moduleName + ":LaunchPrep:" + current_state);
+ //           Echo("BatteryPercentage=" + batteryPercentage);
+//            Echo("batterypctlow=" + batterypctlow);
 
             if (dGravity <= 0)
             {
@@ -45,11 +47,11 @@ namespace IngameScript
 
             if (anyGearIsLocked())
             {
-                StatusLog("Landing Gear(s) LOCKED!", textBlock);
+                StatusLog("Landing Gear(s) LOCKED!", textPanelReport);
             }
             if (AnyConnectorIsConnected())
             {
-                StatusLog("Connector connected!\n   auto-prepare for launch", textBlock);
+                StatusLog("Connector connected!\n   auto-prepare for launch", textPanelReport);
             }
             else
             {
@@ -63,7 +65,7 @@ namespace IngameScript
 
             if (AnyConnectorIsLocked())
             {
-                StatusLog("Connector Locked!", textBlock);
+                StatusLog("Connector Locked!", textPanelReport);
             }
 
             if (AnyConnectorIsLocked() || anyGearIsLocked())
@@ -105,49 +107,39 @@ namespace IngameScript
                     current_state = 1;
                 }
             }
-            //	else batteryCheck(0, true); //,textBlock);
+            //	else             batteryCheck(0, true); //,textBlock);
+            //TODO: Check reactors and pull uranium
+            //TODO: Check gas gens and pull ice
 
             //	StatusLog("C:" + progressBar(cargopcent), textBlock);
 
-            //	if (bValidExtraInfo)
+            if (batteryList.Count > 0)
             {
                 StatusLog("Bat:" + progressBar(batteryPercentage), textPanelReport);
-                if (oxyPercent >= 0)
-                {
-                    StatusLog("O2:" + progressBar(oxyPercent * 100), textPanelReport);
-                    //Echo("O:" + oxyPercent.ToString("000.0%"));
-                }
-                else Echo("No Oxygen Tanks");
-
-                if (hydroPercent >= 0)
-                {
-                    StatusLog("Hyd:" + progressBar(hydroPercent * 100), textPanelReport);
-                    if(hydroPercent<0.20f)
-                      StatusLog(" WARNING: Low Hydrogen Supplies", textPanelReport);
-
-                    Echo("H:" + hydroPercent.ToString("000.0%"));
-                }
-                else Echo("No Hydrogen Tanks");
-                if (batteryPercentage < batterypctlow)
-                    StatusLog(" WARNING: Low Battery Power", textPanelReport);
-
-                //		if (iOxygenTanks > 0) StatusLog("O2:" + progressBar(tanksFill(iTankOxygen)), textPanelReport);
-                //		if (iHydroTanks > 0) StatusLog("Hyd:" + progressBar(tanksFill(iTankHydro)), textPanelReport);
+                Echo("BatteryPercentage=" + batteryPercentage);
             }
+            else StatusLog("Bat: <NONE>", textPanelReport);
+
+            if (oxyPercent >= 0)
+            {
+                StatusLog("O2:" + progressBar(oxyPercent * 100), textPanelReport);
+                //Echo("O:" + oxyPercent.ToString("000.0%"));
+            }
+            else Echo("No Oxygen Tanks");
+
+            if (hydroPercent >= 0)
+            {
+                StatusLog("Hyd:" + progressBar(hydroPercent * 100), textPanelReport);
+                if(hydroPercent<0.20f)
+                    StatusLog(" WARNING: Low Hydrogen Supplies", textPanelReport);
+
+                Echo("H:" + hydroPercent.ToString("000.0%"));
+            }
+            else Echo("No Hydrogen Tanks");
+            if (batteryList.Count>0 && batteryPercentage < batterypctlow)
+                StatusLog(" WARNING: Low Battery Power", textPanelReport);
 
 
-            /*
-                if ((craft_operation & CRAFT_MODE_ROCKET) > 0)
-                {
-                    thrustStage1UpList = thrustForwardList;
-                    thrustStage1DownList = thrustBackwardList;
-                }
-                else
-                {
-                    thrustStage1UpList = thrustUpList;
-                    thrustStage1DownList = thrustDownList;
-                }
-            */
         }
 
     }

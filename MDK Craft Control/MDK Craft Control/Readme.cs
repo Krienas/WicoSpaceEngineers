@@ -3,8 +3,63 @@
 *
 * Control Script for Rovers and Drones and Oribtal craft
 * 
-* Version 3.1A
+* Uncompressed source for this script here: https://github.com/Wicorel/SpaceEngineers/tree/master/MDK%20Craft%20Control
+ * 
+ * 
+ * Handles:
+* Master timer for sub-modules
+* Calculates ship speed and vectors (obsolete)
+* Calculates simspeed (obsolete)
+* Configure craft_operation settings
+* making sure antenna doesn't get turned off (bug in SE turn off antenna when trying to remotely connect to grid)
 * 
+* Calculates cargo and power percentages and cargo multiplier and hydro fill and oxy tank fill
+ * 
+ * Detects grid changes and initiates re-init
+ * 
+* * 
+* MODE_IDLE
+* MODE_ATTENTION
+* 
+* Commands:
+* 
+* setsimspeed <value>: sets the current simspeed so the calculations can be accurate. (obsolete)
+* init: re-init all blocks
+* idle : force MODE_IDLE
+* coast: turns on/off backward thrusters
+* masterreset: attempts to do a master reset of all saved information
+* setvaluef <blockname>:<property>:<value>  -> sets specified block's property to specified value
+* Example:
+*  setvaluef Advanced Rotor:UpperLimit:-24
+* genpatrol [distance [up]]
+* Examples:
+* genpatrol
+* genpatrol 300 150
+* genpatrol 500
+*
+* Need:
+
+* Want:
+* 
+* menu management for commands (including sub-modules)
+* 
+* minimize serialized data and make sub-modules pass their own seperately, OR support extra data in state
+* 
+* common function for 'handle this' combining 'me' grid and an exclusion name check
+*
+* multi-script handling for modes
+* 
+* * advanced trigger: only when module handles that mode... (so need mode->module dictionary)
+* override base modes?
+*
+*
+*
+* WANT:
+* setvalueb
+* Actions
+* Trigger timers on 'events'.
+* set antenna name to match mode?
+* *
 * 2.0 Removed many built-in functions to make script room. These functions were duplicated in sub-modules anyway.
 * 2.0.1
 * 0.2 Remove items from serialize that main control no longer calculates (cargo, battery, etc).
@@ -78,54 +133,80 @@
 * don't count ejectors in cargo%
 * fix bug in DoTriggerMain() causing updates to stop
 * 
+* 3.1D Section processing for save information (text panels)
+* fix bug in serialize wrting z,y z, instead of x,y,z (oops)
 * 
-* Handles:
-* Master timer for sub-modules
-* Calculates ship speed and vectors
-* Calculates simspeed
-* Configure craft_operation settings
-* making sure antenna doesn't get turned off (bug in SE turn off antenna when trying to remotely connect to grid)
-* 
-* Calculates cargo and power percentages and cargo multiplier and hydro fill and oxy tank fill
- * 
- * Detects grid changes and initiates re-init
- * 
-* * 
-* MODE_IDLE
-* MODE_ATTENTION
-* 
-* Commands:
-* 
-* setsimspeed <value>: sets the current simspeed so the calculations can be accurate.
-* init: re-init all blocks
-* idle : force MODE_IDLE
-* coast: turns on/off backward thrusters
-* setvaluef <blockname>:<property>:<value>  -> sets specified block's property to specified value
-* Example:
-*  setvaluef Advanced Rotor:UpperLimit:-24
+* 3.2 INI WCCM 01062018
 *
-* Need:
-
-* Want:
+* 3.2A
+* FilledRatio Change
 * 
-* menu management for commands (including sub-modules)
+* 3.2B Lots of INI processing
 * 
-* minimize serialized data and make sub-modules pass their own seperately, OR support extra data in state
+* 3.3 Handle multiple output panels.
+* Only write to panels at end
 * 
-* common function for 'handle this' combining 'me' grid and an exclusion name check
-*
-* multi-script handling for modes
+* 3.3A Redo Serlialize.
+* Module Serlialize
 * 
-* * advanced trigger: only when module handles that mode... (so need mode->module dictionary)
-* override base modes?
-*
-*
-*
-* WANT:
-* setvalueb
-* Actions
-* Trigger timers on 'events'.
-* set antenna name to match mode?
-*
-*
+* 3.4 
+* add namecameras
+* 
+* 3.4a
+* init optimizations for text panels
+* 
+* 3.4B turn off auto-pirate mode.
+* 
+* 3.4C options for timer names
+* options for debugupdate
+* options for submodule trigger rate
+* 
+* 3.4D Mar 29 2018 Current Source
+* removed ModeScans/MODE_DOSCAN
+* 
+* 3.4E Mar 22, 2018
+* Error messages on missing blocks on startup
+* Re-try startup if there are errors.
+* 
+* 3.4F 
+* handle stations having no propulsion methods
+* increase default sub-module trigger to 5seconds
+* May 27, 2018
+* 
+* 3.4G June 08,2018
+* Add setmode and setstate commands
+* Clear all panels on masterreset command
+* 
+* 3.4H June 19,2018
+* Add genpatrol command to generate a set of patrol waypoints around this ship.
+* Defaults for distance are 500 and up  is 500
+* 
+* 3.4I
+* July 23 SE 1.187 MDK 1.1.16
+* 
+* 3.4J Sep 08 2018
+* MDK Update
+* Performance Pass
+* 
+* 
+* genpatrol [distance [up]]
+* genpatrol
+* genpatrol 300 150
+* genpatrol 500
+* 
+* 3.4J
+* 
+* 3.5 SE V1.189
+* 
+* 3.7 05292019 SE 1.190
+* Current source (no antenna send)
+* 
+* 3.7a 11242019 
+* Current source
+* 
+* 3.8 12222019
+* Old IGC removal in SE 1.193.100.  Remove references to old IGC.
+* 
+* 3.8a 12232019
+* MyIni error reporting removed
 */

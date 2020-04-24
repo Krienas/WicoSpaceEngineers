@@ -22,11 +22,19 @@ namespace IngameScript
         // check for gears with "[DOCK]"
         #region gears 
 
+        string sGearUse = "[DOCK]";
+
         List<IMyTerminalBlock> gearList = new List<IMyTerminalBlock>();
+
+        void GearsInitCustomData(INIHolder iNIHolder)
+        {
+            iNIHolder.GetValue(sConnectorSection, "GearUse", ref sGearUse, true);
+
+        }
 
         void getLocalGears()
         {
-            if (gearList.Count < 1) gearList = GetBlocksContains<IMyLandingGear>("[DOCK]");
+            if (gearList.Count < 1) gearList = GetBlocksContains<IMyLandingGear>(sGearUse);
             if (gearList.Count < 1) gearList = GetTargetBlocks<IMyLandingGear>();
 
             return;
@@ -55,7 +63,7 @@ namespace IngameScript
 
         bool gearReadyToLock(IMyTerminalBlock block)
         {
-            IMyLandingGear g = block as IMyLandingGear;
+            var g = block as IMyLandingGear;
             if (g == null) return false;
             return ((int)g.LockMode == 1);// LandingGearMode.ReadyToLock);
             /*
@@ -72,7 +80,7 @@ namespace IngameScript
         }
         bool anyGearReadyToLock()
         {
-            StringBuilder temp = new StringBuilder();
+            var temp = new StringBuilder();
             for (int i = 0; i < gearList.Count; i++)
             {
                 if (gearReadyToLock(gearList[i]))

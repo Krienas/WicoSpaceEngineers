@@ -20,7 +20,7 @@ namespace IngameScript
     {
         string OurName = "Wico Craft";
         string moduleName = "AttackDrone";
-        string sVersion = "3.1";
+        string sVersion = "3.4B";
 
         const string sGPSCenter = "Craft Remote Control";
 
@@ -29,7 +29,7 @@ namespace IngameScript
         Vector3I iUp = new Vector3I(0, 0, 0);
         Vector3I iLeft = new Vector3I(0, 0, 0);
         */
-        Vector3D currentPosition;
+//        Vector3D currentPosition;
         const string velocityFormat = "0.00";
 
         bool bWeaponsHot = true;
@@ -37,16 +37,20 @@ namespace IngameScript
         bool bFriendlyFire = true;
 
 
-        IMyTerminalBlock anchorPosition;
-        IMyTerminalBlock gpsCenter = null;
+ //       IMyTerminalBlock anchorPosition;
+ //       IMyTerminalBlock shipOrientationBlock = null;
 //        Vector3D vCurrentPos;
-        //IMyTerminalBlock gpsCenter = null;
-        class OurException : Exception
+        //IMyTerminalBlock shipOrientationBlock = null;
+ 
+        void ModuleDeserialize(INIHolder iNIHolder)
         {
-            public OurException(string msg) : base("WicoAttackDrone" + ": " + msg) { }
+            ScansDeserialize(iNIHolder);
         }
 
-
+        void ModuleSerialize(INIHolder iNIHolder)
+        {
+            ScansDeserialize(iNIHolder);
+        }
         void moduleDoPreModes()
         {
         }
@@ -58,12 +62,15 @@ namespace IngameScript
         }
 
         void ResetMotion(bool bNoDrills = false)  
-        { 
-        //	if (navEnable != null)	blockApplyAction(navEnable,"OnOff_Off"); //navEnable.ApplyAction("OnOff_Off"); 
-//	        powerDownThrusters(thrustAllList);
-//            gyrosOff();
-	        blockApplyAction(gpsCenter, "AutoPilot_Off"); 
-        } 
+        {
+            powerDownThrusters(thrustAllList);
+            gyrosOff();
+//            powerDownRotors(rotorNavLeftList);
+//            powerDownRotors(rotorNavRightList);
+            if (shipOrientationBlock is IMyRemoteControl) ((IMyRemoteControl)shipOrientationBlock).SetAutoPilotEnabled(false);
+            if (shipOrientationBlock is IMyShipController) ((IMyShipController)shipOrientationBlock).DampenersOverride = true;
+ //           if (!bNoDrills) turnDrillsOff();
+        }
 
     }
 }

@@ -18,13 +18,14 @@ namespace IngameScript
 {
     partial class Program : MyGridProgram
     {
-        #region reactors
+        double maxReactorPower = -1;
         List<IMyTerminalBlock> reactorList = new List<IMyTerminalBlock>();
 
         void initReactors()
         {
             reactorList.Clear();
-            GridTerminalSystem.GetBlocksOfType<IMyReactor>(reactorList, localGridFilter);
+            GetTargetBlocks<IMyReactor>(ref reactorList);
+//            GridTerminalSystem.GetBlocksOfType<IMyReactor>(reactorList, localGridFilter);
 
             float currentOutput;
             reactorCheck(out currentOutput);
@@ -62,7 +63,6 @@ namespace IngameScript
             return bNeedyReactor;
         }
 
-        #endregion
 
     }
 }

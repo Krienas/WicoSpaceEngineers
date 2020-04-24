@@ -31,7 +31,10 @@ namespace IngameScript
                     setMode(MODE_DOCKED);
                 }
                 */
+            //           Echo("Grid Mass=" + gridBaseMass);
+
             if (iMode == MODE_IDLE) doModeIdle();
+//            if (iMode == MODE_DOSCAN) doModeScans();
             else if (iMode == MODE_ATTENTION)
             {
                 StatusLog("clear", textPanelReport);
@@ -54,7 +57,7 @@ namespace IngameScript
             //    if (navStatus != null) navStatus.CustomName=sNavStatus + " Control Reset";
             //bValidPlayerPosition = false;
             setMode(MODE_IDLE);
-            if (AnyConnectorIsConnected() && iMode != MODE_LAUNCH && iMode != MODE_RELAUNCH && !((craft_operation & CRAFT_MODE_ORBITAL) > 0) && !((craft_operation & CRAFT_MODE_NAD) > 0))
+            if (gridBaseMass>0 && AnyConnectorIsConnected() && iMode != MODE_LAUNCH && iMode != MODE_RELAUNCH && !((craft_operation & CRAFT_MODE_ORBITAL) > 0) && !((craft_operation & CRAFT_MODE_NAD) > 0))
                 setMode(MODE_DOCKED);
         }
         void doModeIdle()
@@ -62,27 +65,10 @@ namespace IngameScript
             StatusLog("clear", textPanelReport);
             StatusLog(OurName + ":" + moduleName + ":Manual Control (idle)", textPanelReport);
 
-            if (AnyConnectorIsConnected() && iMode != MODE_LAUNCH && iMode != MODE_RELAUNCH && !((craft_operation & CRAFT_MODE_ORBITAL) > 0) && !((craft_operation & CRAFT_MODE_NAD) > 0))
+            if (gridBaseMass > 0 && AnyConnectorIsConnected() && iMode != MODE_LAUNCH && iMode != MODE_RELAUNCH && !((craft_operation & CRAFT_MODE_ORBITAL) > 0) && !((craft_operation & CRAFT_MODE_NAD) > 0))
                 setMode(MODE_DOCKED);
         }
         #endregion
-
-
-
-        double calculateStoppingDistance(List<IMyTerminalBlock> thrustUpList, double currentV, double dGrav)
-        {
-            MyShipMass myMass;
-            myMass = ((IMyShipController)gpsCenter).CalculateShipMass();
-            double hoverthrust = 0;
-            hoverthrust = myMass.PhysicalMass * dGrav * 9.810;
-            double maxThrust = calculateMaxThrust(thrustUpList);
-            double maxDeltaV = (maxThrust - hoverthrust) / myMass.TotalMass;
-            double secondstozero = currentV / maxDeltaV;
-            Echo("secondstozero=" + secondstozero.ToString("0.00"));
-            double stoppingM = currentV / 2 * secondstozero;
-            Echo("stoppingM=" + stoppingM.ToString("0.00"));
-            return stoppingM;
-        }
 
     }
 }

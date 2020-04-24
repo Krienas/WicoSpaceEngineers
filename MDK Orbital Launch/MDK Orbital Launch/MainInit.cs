@@ -26,11 +26,6 @@ namespace IngameScript
 
         #region maininit
 
-        string sInitResults = "";
-        string sArgResults = "";
-
-        int currentInit = 0;
-
         string doInit()
         {
 
@@ -57,30 +52,33 @@ namespace IngameScript
                 else Echo("NULL modeCommands!");
                 gridsInit();
                 initLogging();
-                sInitResults += initSerializeCommon();
+                sInitResults += SerializeInit();// SeinitSerializeCommon();
                 Deserialize();
             }
             else if (currentInit == 1)
             {
-                sInitResults += BlockInit();
-                anchorPosition = gpsCenter;
-                currentPosition = anchorPosition.GetPosition();
+//                sInitResults += BlockInit();
+                sInitResults += DefaultOrientationBlockInit();
+//                anchorPosition = shipOrientationBlock;
+//                currentPosition = anchorPosition.GetPosition();
                 sInitResults += connectorsInit();
-                sInitResults += thrustersInit(gpsCenter);
-                sInitResults += camerasensorsInit(gpsCenter);
+                sInitResults += thrustersInit(shipOrientationBlock);
+                sInitResults += camerasensorsInit(shipOrientationBlock);
 
                 /*
                 }
                 else if(currentInit==2)
                 {
                 */
+                initReactors();
                 sInitResults += gearsInit();
                 sInitResults += tanksInit();
+                initPower();
 
-//                sInitResults += NAVInit();
+                //                sInitResults += NAVInit();
                 sInitResults += gyrosetup();
                 sInitResults += doorsInit();
-                sInitResults += landingsInit(gpsCenter);
+                sInitResults += landingsInit(shipOrientationBlock);
 
                 Deserialize();
 
@@ -99,14 +97,14 @@ namespace IngameScript
 
         }
 
-        IMyTextPanel gpsPanel = null;
+//        IMyTextPanel gpsPanel = null;
 
         string BlockInit()
         {
             string sInitResults = "";
 
             List<IMyTerminalBlock> centerSearch = new List<IMyTerminalBlock>();
-            GridTerminalSystem.SearchBlocksOfName(sGPSCenter, centerSearch, localGridFilter);
+            GridTerminalSystem.SearchBlocksOfName(sshipOrientationBlock, centerSearch, localGridFilter);
             if (centerSearch.Count == 0)
             {
                 centerSearch = GetBlocksContains<IMyRemoteControl>("[NAV]");
@@ -149,21 +147,52 @@ namespace IngameScript
                 Echo("Using Named: " + centerSearch[0].CustomName);
             }
             if (centerSearch.Count > 0)
-                gpsCenter = centerSearch[0];
+                shipOrientationBlock = centerSearch[0];
+            /*
             List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
             blocks = GetBlocksContains<IMyTextPanel>("[GPS]");
             if (blocks.Count > 0)
                 gpsPanel = blocks[0] as IMyTextPanel;
-
+                */
             return sInitResults;
         }
         string modeOnInit()
         {
+            if (iMode == MODE_HOVER)
+            {
+                current_state = 0; // re-init 
+                bWantFast = true;
+            }
+            else if (iMode == MODE_ORBITALLAUNCH)
+            {
+                bWantFast = true;
+            }
+            else if (iMode == MODE_LAUNCHPREP)
+            {
+                bWantFast = true;
+            }
+            else if (iMode == MODE_LANDED)
+            {
+                bWantFast = true;
+            }
 
             return ">";
         }
 
         #endregion
+        void ModuleInitCustomData(INIHolder iniCustomData)
+        {
+            ConnectorInitCustomData(iniCustomData);
+            ThrustersInitCustomData(iniCustomData);
+            GyroInitCustomData(iniCustomData);
+            CamerasInitCustomData(iniCustomData);
+            GearsInitCustomData(iniCustomData);
+            CargoInitCustomData(iniCustomData);
+            PowerInitCustomData(iniCustomData);
+            OrbitalInitCustomData(iniCustomData);
+
+            DoorInitCustomData(iniCustomData);
+        }
 
 
     }

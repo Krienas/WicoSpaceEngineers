@@ -25,80 +25,294 @@ namespace IngameScript
         {
             // called from main constructor.
             sTextPanelReport = "LCD Bridge R";
-            OurName = "Wico Techniker"; 
-            sGPSCenter = "Remote Control Techniker";
-
+            OurName = "Wico Techniker";
+            sOrientationBlockNamed = "Remote Control Techniker";
             initCustomData();
+
+        }
+        void ModuleInitCustomData(INIHolder iniCustomData)
+        {
+            ConnectorInitCustomData(iniCustomData);
+            ThrustersInitCustomData(iniCustomData);
+            GyroInitCustomData(iniCustomData);
+            CamerasInitCustomData(iniCustomData);
+            GearsInitCustomData(iniCustomData);
 
         }
 
         #region maininit
-
-        string sInitResults = "";
-        int currentInit = 0;
 
         double gridBaseMass = 0;
 
         string doInit()
         {
 
-             Echo("InitA:" + currentInit + ":"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
-           // initialization of each module goes here:
+            //             Echo("InitA:" + currentInit + ":"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
+            // initialization of each module goes here:
 
             // when all initialization is done, set init to true.
 
+            if (bStartupError)
+            {
+                Echo("(RE)INIT:" + sStartupError);
+            }
             Log("Init:" + currentInit.ToString());
-            Echo(gtsAllBlocks.Count.ToString() + " Blocks");
+//            Echo(gtsAllBlocks.Count.ToString() + " Blocks");
             /*
             double progress = currentInit * 100 / 3; // 3=Number of expected INIT phases.
             string sProgress = progressBar(progress);
             StatusLog(moduleName + sProgress, textPanelReport);
             */
-            if (gpsCenter != null)
+            if (shipOrientationBlock != null)
             {
-                anchorPosition = gpsCenter;
-                currentPosition = anchorPosition.GetPosition();
+ //               anchorPosition = shipOrientationBlock;
+ //               currentPosition = anchorPosition.GetPosition();
             }
-//            Echo("InitB:" + currentInit + ":"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
+            //            Echo("InitB:" + currentInit + ":"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
+
+            do
+            {
+                //                Echo("Init:" + currentInit);
+                echoInstructions("Init:" + currentInit + " ");
+                switch (currentInit)
+                {
+                    case 0:
+                        sStartupError = "";
+                        if (bStartupError) gridsInit(); // check the entire grid again
+                        bStartupError = false;
+                        StatusLog(DateTime.Now.ToString() + " " + OurName + ":" + moduleName + ":INIT", textLongStatus, true);
+                        break;
+                    case 2:
+                        sInitResults += gridsInit();
+                        break;
+                    case 3:
+                        initLogging();
+                        break;
+                    case 4:
+                        initTimers();
+                        break;
+                    case 5:
+                        sInitResults += SerializeInit();
+                        Deserialize(); // get info from savefile to avoid blind-rewrite of (our) defaults
+                        break;
+                    case 6:
+                        sInitResults += DefaultOrientationBlockInit();
+                        break;
+                    case 7:
+                        initCargoCheck();
+                        break;
+                    case 8:
+                        initPower();
+                        break;
+                    case 9:
+                        sInitResults += thrustersInit(shipOrientationBlock);
+                        break;
+                    case 10:
+                        sInitResults += gyrosetup();
+                        GyroControl.UpdateGyroList(gyros);
+                        break;
+                    case 11:
+                        if (shipOrientationBlock is IMyRemoteControl)
+                        {
+                            Vector3D playerPosition;
+                            bool bGotPlayer = ((IMyRemoteControl)shipOrientationBlock).GetNearestPlayer(out playerPosition);
+                            IMyRemoteControl myR = (IMyRemoteControl)shipOrientationBlock;
+                            myR.SetCollisionAvoidance(false);
+                            myR.SetDockingMode(false);
+                            myR.Direction = Base6Directions.Direction.Forward;
+                            myR.FlightMode = FlightMode.OneWay;
+                            myR.ClearWaypoints();
+                            /*
+                            if (bGotPlayer)
+                            {
+                                // we are a pirate faction.  chase the player.
+                                myR.AddWaypoint(playerPosition, "Name");
+                                myR.SetAutoPilotEnabled(true);
+                                setMode(MODE_ATTACK);
+                            }
+                            */
+                        }
+                        break;
+                    case 12:
+                        sInitResults += wheelsInit(shipOrientationBlock);
+                        break;
+                    case 13:
+                        sInitResults += rotorsNavInit();
+                        break;
+                    case 14:
+                        sInitResults += connectorsInit();
+                        break;
+                    case 15:
+                        sInitResults += tanksInit();
+                        break;
+                    case 16:
+                        sInitResults += drillInit();
+                        sInitResults += controllersInit();
+                        break;
+                    case 17:
+                        sInitResults += SensorInit(shipOrientationBlock);
+                        break;
+                    case 18:
+                        sInitResults += ejectorsInit();
+                        break;
+                    case 19:
+                        sInitResults += antennaInit();
+                        break;
+                    case 20:
+                        sInitResults += gasgenInit();
+                        sInitResults += camerasensorsInit(shipOrientationBlock);
+                        sInitResults += airventInit();
+                        break;
+                    case 21:
+                        autoConfig();
+                        break;
+                    case 22:
+                        //                        bWantFast = false;
+
+                        if (bGotAntennaName)
+                            sBanner = "*" + OurName + ":" + moduleName + " V" + sVersion + " ";
+
+                        if (sBanner.Length > 34)
+                        {
+                            sBanner = OurName + ":" + moduleName + "\nV" + sVersion + " ";
+                        }
+                        if (shipOrientationBlock is IMyShipController)
+                        {
+                            MyShipMass myMass;
+                            myMass = ((IMyShipController)shipOrientationBlock).CalculateShipMass();
+
+                            gridBaseMass = myMass.BaseMass;
+                        }
+
+                        sInitResults += modeOnInit(); // handle mode initializing from load/recompile..
+                        break;
+                    case 23:
+                        // do startup error check
+                        init = true; // we are done
+                        sStartupError = "";
+                        bStartupError = false;
+                        if (shipOrientationBlock == null)
+                        {
+                            bStartupError = true;
+                            sStartupError += "\nNo Ship Controller";
+                        }
+                        if (ionThrustCount < 1 && hydroThrustCount < 1 && atmoThrustCount < 1)
+                        {
+                            // no thrusters
+                            if (wheelSledList.Count < 1)
+                            {
+                                // no sled wheels && no thrusters
+                                if (rotorNavRightList.Count < 1)
+                                {
+                                    bStartupError = true;
+                                    sStartupError += "\nNo Propulsion Method Found";
+                                    sStartupError += "\nNo Thrusters.\nNo NAV Rotors\nNo Sled Wheels";
+
+                                }
+                            }
+                            else
+                            {
+                                // sled wheels, but not thrusters...
+                                bStartupError = true;
+                                sStartupError += "\nNo Valid Propulsion Method Found";
+                                sStartupError += "\nSled wheels, but No Thrusters.\nNo NAV Rotors";
+                            }
+                        }
+                        else
+                        {
+                            // we DO have thrusters
+                            if (gyros.Count < 1)
+                            {
+                                // thrusters, but no gyros
+                                bStartupError = true;
+                                sStartupError += "\nNo Gyros Found";
+                            }
+                            // check for sled wheels?
+                            if (shipOrientationBlock is IMyShipController)
+                            {
+                                // can check gravity..
+                            }
+                        }
+                        // check for [WCCS] timer, but no Wico Craft Save.. and vice-versa
+                        if (TimerTriggerFind(sSubModuleTimer))
+                        {
+                            // there is a submodule timer trigger
+                            if (SaveFile == null)
+                            { // no save text panel
+
+                                bStartupError = true;
+                                sStartupError += "\nSubmodule timer, but no text\n panel named:" + SAVE_FILE_NAME;
+
+                            }
+                        }
+                        else
+                        {
+                            if (bSupportSubModules)
+                            {
+                                bStartupError = true;
+                                sStartupError += "\nSubmodules Enabled, but no\n timer containing:" + sSubModuleTimer;
+                                if (SaveFile == null)
+                                { // no save text panel
+
+                                    bStartupError = true;
+                                    sStartupError += "\n No text\n panel containing:" + SAVE_FILE_NAME;
+
+                                }
+
+                            }
+                        }
+                        if (!bStartupError)
+                        {
+                            init = true;
+                        }
+                        else
+                        {
+                            currentInit = -1; // start init all over again
+                        }
+                        break;
+                }
+                currentInit++;
+                //               echoInstructions("EInit:" + currentInit + " | ");
+                //               Echo("%=" + (float)Runtime.CurrentInstructionCount / (float)Runtime.MaxInstructionCount);
+            }
+            while (!init && (((float)Runtime.CurrentInstructionCount / (float)Runtime.MaxInstructionCount) < 0.2f));
+/*
             if (currentInit == 0)
             {
 //            Echo("Init0:" + currentInit + ":"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
                 //        StatusLog("clear", textLongStatus, true); // only MAIN module should clear long status on init.
                 StatusLog(DateTime.Now.ToString() + " " + OurName + ":" + moduleName + ":INIT", textLongStatus, true);
 
-                /*
-                if(!modeCommands.ContainsKey("launchprep")) modeCommands.Add("launchprep", MODE_LAUNCHPREP);
-                */
-               sInitResults += gridsInit();
-                 initLogging();
+                sInitResults += gridsInit();
+                initLogging();
                 initTimers();
-                sInitResults += initSerializeCommon();
+                sInitResults += SerializeInit();
 
                 Deserialize(); // get info from savefile to avoid blind-rewrite of (our) defaults
             }
             else if (currentInit == 1)
             {
-//            Echo("Init1:" + currentInit + ":"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
                 Deserialize();// get info from savefile to avoid blind-rewrite of (our) defaults
 
-                sInitResults += BlockInit();
+                sInitResults += DefaultOrientationBlockInit();
                 initCargoCheck();
                 initPower();
-                sInitResults += thrustersInit(gpsCenter);
-               sInitResults += gyrosetup();
+                sInitResults += thrustersInit(shipOrientationBlock);
+                sInitResults += gyrosetup();
+                GyroControl.UpdateGyroList(gyros);
                 if (gtsAllBlocks.Count < 300) currentInit = 2; // go ahead and do next step.
             }
             if (currentInit == 2)
             {
-//            Echo("Init2:" + currentInit + ":"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
-                sInitResults += wheelsInit(gpsCenter);
+                sInitResults += wheelsInit(shipOrientationBlock);
                 sInitResults += rotorsNavInit();
+                sInitResults += wheelsInit(shipOrientationBlock);
+                sInitResults += sensorInit(true);
 
-                 if (gtsAllBlocks.Count < 100) currentInit = 3; // go ahead and do next step.
+                if (gtsAllBlocks.Count < 100) currentInit = 3; // go ahead and do next step.
             }
             if (currentInit == 3)
             {
-//            Echo("Init3:" + currentInit + ":"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
                sInitResults += connectorsInit();
                 sInitResults += tanksInit();
                 sInitResults += drillInit();
@@ -107,11 +321,10 @@ namespace IngameScript
             }
             if (currentInit == 4)
             {
-//            Echo("Init4:" + currentInit + ":"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
                 sInitResults += ejectorsInit();
                 sInitResults += antennaInit();
                 sInitResults += gasgenInit();
-                sInitResults += camerasensorsInit(gpsCenter);
+                sInitResults += camerasensorsInit(shipOrientationBlock);
                 sInitResults += airventInit();
 
                 //        Serialize();
@@ -127,29 +340,98 @@ namespace IngameScript
                     sBanner = OurName + ":" + moduleName + "\nV" + sVersion + " ";
                 }
 
-                if (anchorPosition != null)
+                if (shipOrientationBlock is IMyShipController)
                 {
                     MyShipMass myMass;
-                    myMass = ((IMyShipController)anchorPosition).CalculateShipMass();
+                    myMass = ((IMyShipController)shipOrientationBlock).CalculateShipMass();
 
                     gridBaseMass = myMass.BaseMass;
+                }////
+                initShipDim(shipOrientationBlock);
 
-                    sInitResults += modeOnInit(); // handle mode initializing from load/recompile..
+                sInitResults += modeOnInit(); // handle mode initializing from load/recompile..
 
-                    init = true; // we are done
-
-                }
-                else
+                if(currentInit==5)
                 {
-                    // we are not complete.  try again..
-                    currentInit = 0;
-                    bWantFast = false;
-                    Echo("Missing Required Item; Please add");
-                    return sInitResults;
+                    sStartupError = "";
+                    bStartupError = false;
+                    if (shipOrientationBlock == null)
+                    {
+                        bStartupError = true;
+                        sStartupError += "\nNo Ship Controller";
+                    }
+                    if (ionThrustCount < 1 && hydroThrustCount < 1 && atmoThrustCount < 1)
+                    {
+                        // no thrusters
+                        if (wheelSledList.Count < 1)
+                        {
+                            // no sled wheels && no thrusters
+                            if (rotorNavRightList.Count < 1)
+                            {
+                                bStartupError = true;
+                                sStartupError += "\nNo Propulsion Method Found";
+                                sStartupError += "\nNo Thrusters.\nNo NAV Rotors\nNo Sled Wheels";
+
+                            }
+                        }
+                        else
+                        {
+                            // sled wheels, but not thrusters...
+                            bStartupError = true;
+                            sStartupError += "\nNo Valid Propulsion Method Found";
+                            sStartupError += "\nSled wheels, but No Thrusters.\nNo NAV Rotors";
+                        }
+                    }
+                    else
+                    {
+                        // we DO have thrusters
+                        if (gyros.Count < 1)
+                        {
+                            // thrusters, but no gyros
+                            bStartupError = true;
+                            sStartupError += "\nNo Gyros Found";
+                        }
+                        // check for sled wheels?
+                        if (shipOrientationBlock is IMyShipController)
+                        {
+                            // can check gravity..
+                        }
+                    }
+                    // check for [WCCS] timer, but no Wico Craft Save.. and vice-versa
+                    if (TimerTriggerFind(sSubModuleTimer))
+                    {
+                        // there is a submodule timer trigger
+                        if (SaveFile == null)
+                        { // no save text panel
+
+                            bStartupError = true;
+                            sStartupError += "\nSubmodule timer, but no text\n panel named:" + SAVE_FILE_NAME;
+
+                        }
+                    }
+                    else
+                    {
+                        if (bSubModules)
+                        {
+                            bStartupError = true;
+                            sStartupError += "\nSubmodules Enabled, but no\n timer containing:" + sSubModuleTimer;
+                            if (SaveFile == null)
+                            { // no save text panel
+
+                                bStartupError = true;
+                                sStartupError += "\n No text\n panel containing:" + SAVE_FILE_NAME;
+
+                            }
+
+                        }
+                    }
+
                 }
+                init = true; // we are done
             }
 
             currentInit++;
+            */
             if (init) currentInit = 0;
 
             Log(sInitResults);
@@ -157,65 +439,6 @@ namespace IngameScript
             return sInitResults;
         }
 
-        IMyTextPanel gpsPanel = null;
-
-        string BlockInit()
-        {
-            string sInitResults = "";
-
-            List<IMyTerminalBlock> centerSearch = new List<IMyTerminalBlock>();
-            GridTerminalSystem.SearchBlocksOfName(sGPSCenter, centerSearch, localGridFilter);
-            if (centerSearch.Count == 0)
-            {
-                centerSearch = GetBlocksContains<IMyRemoteControl>("[NAV]");
-                if (centerSearch.Count == 0)
-                {
-                    GridTerminalSystem.GetBlocksOfType<IMyRemoteControl>(centerSearch, localGridFilter);
-                    if (centerSearch.Count == 0)
-                    {
-                        GridTerminalSystem.GetBlocksOfType<IMyCockpit>(centerSearch, localGridFilter);
-                        //                GridTerminalSystem.GetBlocksOfType<IMyShipController>(centerSearch, localGridFilter);
-                        int i = 0;
-                        for (; i < centerSearch.Count; i++)
-                        {
-                            Echo("Checking Controller:" + centerSearch[i].CustomName);
-                            if (centerSearch[i] is IMyCryoChamber)
-                                continue;
-                            break;
-                        }
-                        if (i > centerSearch.Count)
-                        {
-                            sInitResults += "!!NO valid Controller";
-                            Echo("No Controller found");
-                        }
-                        else
-                        {
-                            sInitResults += "S";
-                            Echo("Using good ship Controller: " + centerSearch[i].CustomName);
-                        }
-                    }
-                    else
-                    {
-                        sInitResults += "R";
-                        Echo("Using First Remote control found: " + centerSearch[0].CustomName);
-                    }
-                }
-            }
-            else
-            {
-                sInitResults += "N";
-                Echo("Using Named: " + centerSearch[0].CustomName);
-            }
-            if (centerSearch.Count > 0)
-                gpsCenter = centerSearch[0];
-
-            List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
-            blocks = GetBlocksContains<IMyTextPanel>("[GPS]");
-            if (blocks.Count > 0)
-                gpsPanel = blocks[0] as IMyTextPanel;
-
-            return sInitResults;
-        }
 
         string modeOnInit()
         {
@@ -225,59 +448,45 @@ namespace IngameScript
 
         #endregion
 
+        string sTechnikerSection = "TECHKNIKER";
         void initCustomData()
         {
-	        string sData = Me.CustomData;
-	        string[] lines = sData.Trim().Split('\n');
-	        Echo(lines.Length + " Lines");
-	        for(int i=0;i<lines.Length;i++)
-	        {
-        Echo("|" + lines[i].Trim());
-		        string[] keys = lines[i].Trim().Split('=');
-		        if(lines[i].ToLower().Contains("thrustignore"))
-		        {
-			        if (keys.Length > 1)
-			        {
-				        sIgnoreThruster = keys[1];
-			        }
-		        }
-		        if(lines[i].ToLower().Contains("shipname"))
-		        {
-			        if (keys.Length > 1)
-			        {
-				        OurName = "Wico " + keys[1];
-				        bGotAntennaName = true;
-			        }
-		        }
-		        if(lines[i].ToLower().Contains("shortrangemax"))
-		        {
-			        if (keys.Length > 1)
-			        {
-				        double d;
-				        if (double.TryParse(keys[1], out d))
-					        shortRangeMax = d;
-				        else Echo("Error Converting" + keys[1]);
-			        }
-			        else Echo("Error parsing");
-		        }
-		        if(lines[i].ToLower().Contains("longrangemax"))
-		        {
-			        if (keys.Length > 1)
-			        {
-				        double d;
-				        if (double.TryParse(keys[1], out d))
-					        longRangeMax = d;
-				        else Echo("Error Converting" + keys[1]);
-			        }
-			        else Echo("Error parsing");
-		        }
-	        }
-	        if (bLongRange)
+            INIHolder iniCustomData = new INIHolder(this, Me.CustomData);
+
+            string sValue="";
+
+            iniCustomData.GetValue(sTechnikerSection, "DoForwardScans", ref bDoForwardScans, true);
+            iniCustomData.GetValue(sTechnikerSection, "CheckGasGens", ref bCheckGasGens, true);
+            iniCustomData.GetValue(sTechnikerSection, "TechnikerCalcs", ref bTechnikerCalcs, true);
+            iniCustomData.GetValue(sTechnikerSection, "GPSFromEntities", ref bGPSFromEntities, true);
+            iniCustomData.GetValue(sTechnikerSection, "AirVents", ref bAirVents, true);
+
+//            iniCustomData.GetValue(sTechnikerSection, "thrustignore", ref sIgnoreThruster, true);
+            if(iniCustomData.GetValue(sTechnikerSection, "shipname", ref sValue))
+            {
+                OurName = "Wico " + sValue;
+                bGotAntennaName = true;
+            }
+
+            iniCustomData.GetValue(sTechnikerSection, "shortrangemax", ref shortRangeMax, true);
+            iniCustomData.GetValue(sTechnikerSection, "longrangemax", ref longRangeMax,true);
+
+            ThrustersInitCustomData(iniCustomData);
+            SensorInitCustomData(iniCustomData);
+
+            if (iniCustomData.IsDirty)
+            {
+                Me.CustomData = iniCustomData.GenerateINI(true);
+            }
+            
+            if (bLongRange)
 		        maxScan = longRangeMax;
 	        else
 		        maxScan = shortRangeMax;
 
         }
+
+
 
     }
 }

@@ -22,26 +22,25 @@ namespace IngameScript
         #region travelmovement
         /*
          * 120617 Added delays for camera and scan checks
+         * 041918 Added checks for sensors and cameras.  Lower speed limit if no cameras. Max 5 if neither.
+         * 502918 Increased size of sensor to shipsize+2
+         * 053x18 revert sensor size if forward cameras.  Do raycast of center + corners of ship bounding box
+         * 
+         * 04102019 Check arrival 'above' target location in gravity
          * 
          */
 
-            /// <summary>
-            /// maximum speed of ship. 
-            /// </summary>
-        double shipSpeedMax = 100;
+        public bool bCollisionWasSensor=false;
 
-        bool dTMDebug = false;
 
         double tmCameraElapsedMs = -1;
-        double tmCameraWaitMs = 0.50;
+        double tmCameraWaitMs = 0.25;
 
         double tmScanElapsedMs = -1;
-        double tmScanWaitMs = 0.125;
-
 
         // below are private
         IMyShipController tmShipController = null;
-        double tmMaxSpeed = 85;
+        double tmMaxSpeed = 85; // calculated max speed.
 
         List<IMyTerminalBlock> thrustTmBackwardList = new List<IMyTerminalBlock>();
         List<IMyTerminalBlock> thrustTmForwardList = new List<IMyTerminalBlock>();
@@ -65,11 +64,16 @@ namespace IngameScript
 
         float tmMaxSensorM = 50f;
 
+        int dtmRayCastQuadrant = 0;
+        // 0 = center. 1= TL, 2= TR, 3=BL, 4=BR
+
+
         // propulsion mode
         bool btmRotor = false;
         bool btmSled = false;
+        bool btmWheels = false;
+        bool btmHasGyros = false;
         // else it's gyros and thrusters
-
 
         /// <summary>
         /// reset so the next call to doTravelMovement will re-initialize.
@@ -78,8 +82,11 @@ namespace IngameScript
         {
             // invalidates any previous tm calculations
             tmShipController = null;
-            sleepAllSensors(); // set sensors to lower power
+            SensorsSleepAll(); // set sensors to lower power
             minAngleRad = 0.01f; // reset Gyro aim tolerance to default
+            tmScanElapsedMs = 0;
+            tmCameraElapsedMs = -1;
+            WheelsPowerUp(0, 50);
         }
 
         /// <summary>
@@ -92,13 +99,32 @@ namespace IngameScript
         void InitDoTravelMovement(Vector3D vTargetLocation, double maxSpeed, IMyTerminalBlock myShipController, int iThrustType=thrustAll)
         {
             tmMaxSpeed = maxSpeed;
+            if(tmMaxSpeed>fMaxWorldMps)
+                tmMaxSpeed=fMaxWorldMps;
 
+            //TODO: add grav gen support
             if ((craft_operation & CRAFT_MODE_SLED) > 0)
             {
                 btmSled = true;
-//                if (shipSpeedMax > 45) shipSpeedMax = 45;
+                //                if (shipSpeedMax > 45) shipSpeedMax = 45;
+//                sStartupError += "\nI am a SLED!";
+                PrepareSledTravel();
             }
             else btmSled = false;
+
+            if ((craft_operation & CRAFT_MODE_WHEEL) > 0)
+            {
+                btmWheels = true;
+                // TODO: Turn brakes OFF
+                if (shipOrientationBlock is IMyShipController) ((IMyShipController)shipOrientationBlock).HandBrake = false;
+            }
+            else btmWheels = false;
+
+            if ((craft_operation & CRAFT_MODE_HASGYROS) > 0)
+            {
+                btmHasGyros = true;
+            }
+            else btmHasGyros = false;
 
             if ((craft_operation & CRAFT_MODE_ROTOR) > 0)
             {
@@ -107,6 +133,7 @@ namespace IngameScript
             }
             else btmRotor = false;
 
+
             tmShipController =  myShipController as IMyShipController;
             Vector3D vVec = vTargetLocation - tmShipController.CenterOfMass;
             double distance = vVec.Length();
@@ -114,7 +141,7 @@ namespace IngameScript
             thrustersInit(tmShipController, ref thrustTmForwardList, ref  thrustTmBackwardList,
             ref thrustTmDownList, ref thrustTmUpList,
             ref thrustTmLeftList, ref thrustTmRightList,iThrustType);
-            sleepAllSensors();
+            SensorsSleepAll();
             if (sensorsList.Count > 0)
             {
                 tmSB = sensorsList[0];
@@ -127,46 +154,70 @@ namespace IngameScript
                 tmSB.DetectStations = true;
                 tmSB.DetectPlayers = false; // run them over!
                 tmMaxSensorM = tmSB.GetMaximum<float>("Front");
+                if ( cameraForwardList.Count < 1)
+                {
+                    // sensors, but no cameras.
+                    if (!AllowBlindNav)   tmMaxSpeed = tmMaxSensorM / 2;
+                    if (dTMUseCameraCollision) sStartupError += "\nNo Cameras for collision detection";
+                }
             }
             else
             {
+                // no sensors...
                 tmSB = null;
                 tmMaxSensorM = 0;
+                if (cameraForwardList.Count < 1)
+                {
+                    if (dTMUseCameraCollision || dTMUseSensorCollision) sStartupError += "\nNo Sensor nor cameras\n for collision detection";
+                    if (!AllowBlindNav) tmMaxSpeed = 5;
+                }
+                else
+                {
+                    if (dTMUseSensorCollision) sStartupError += "\nNo Sensor for collision detection";
+                }
             }
             btmApproach = false; // we have reached approach range
             btmPrecision = false; // we have reached precision range
             btmClose = false; // we have reached close range
 
+            double optimalV = tmMaxSpeed;
 
-
-
-            double optimalV = CalculateOptimalSpeed( thrustTmBackwardList, distance);
+            // need to check other propulsion flags..
+            if(!btmSled && !btmRotor) optimalV=CalculateOptimalSpeed( thrustTmBackwardList, distance, tmMaxSpeed);
             if (optimalV < tmMaxSpeed)
                 tmMaxSpeed = optimalV;
-//            sInitResults += "\nDistance="+niceDoubleMeters(distance)+" OptimalV=" + optimalV;
+
+            if (dTMDebug) sStartupError += "\nDistance="+niceDoubleMeters(distance)+" OptimalV=" + niceDoubleMeters(optimalV);
 
             dtmFarSpeed = tmMaxSpeed;
             dtmApproachSpeed = tmMaxSpeed * 0.50;
             dtmPrecisionSpeed = tmMaxSpeed*0.25;
+
+            // minimum speeds.
+            if (dtmApproachSpeed < 5) dtmApproachSpeed = 5;
             if (dtmPrecisionSpeed < 5) dtmPrecisionSpeed = 5;
 
-            if(dtmPrecisionSpeed > dtmApproachSpeed)  dtmApproachSpeed = dtmPrecisionSpeed; 
+            if (dtmPrecisionSpeed > dtmApproachSpeed)  dtmApproachSpeed = dtmPrecisionSpeed; 
             if (dtmPrecisionSpeed > dtmFarSpeed) dtmFarSpeed = dtmPrecisionSpeed;
 
-//            dtmPrecision =calculateStoppingDistance(thrustTmBackwardList, dtmPrecisionSpeed*1.1, 0);
-//            dtmApproach = calculateStoppingDistance(thrustTmBackwardList, dtmApproachSpeed*1.1, 0);
+            //            dtmPrecision =calculateStoppingDistance(thrustTmBackwardList, dtmPrecisionSpeed*1.1, 0);
+            //            dtmApproach = calculateStoppingDistance(thrustTmBackwardList, dtmApproachSpeed*1.1, 0);
 
-            dtmPrecision =calculateStoppingDistance(thrustTmBackwardList, dtmPrecisionSpeed +(dtmApproachSpeed-dtmPrecisionSpeed)/2, 0);
-            dtmApproach = calculateStoppingDistance(thrustTmBackwardList, dtmApproachSpeed +(dtmFarSpeed-dtmApproachSpeed)/2, 0);
+            if (!(btmWheels || btmRotor))
+            {
+                dtmPrecision = calculateStoppingDistance(thrustTmBackwardList, dtmPrecisionSpeed + (dtmApproachSpeed - dtmPrecisionSpeed) / 2, 0);
+                dtmApproach = calculateStoppingDistance(thrustTmBackwardList, dtmApproachSpeed + (dtmFarSpeed - dtmApproachSpeed) / 2, 0);
 
-            dtmFar = calculateStoppingDistance(thrustTmBackwardList, dtmFarSpeed, 0); // calculate maximum stopping distance at full speed
+                dtmFar = calculateStoppingDistance(thrustTmBackwardList, dtmFarSpeed, 0); // calculate maximum stopping distance at full speed
+            }
+            if (dTMDebug) sStartupError += "\nFarSpeed=="+niceDoubleMeters(dtmFarSpeed)+" ASpeed=" + niceDoubleMeters(dtmApproachSpeed);
 
-//  sInitResults += "\nFarSpeed=="+niceDoubleMeters(dtmFarSpeed)+" ASpeed=" + niceDoubleMeters(dtmApproachSpeed);
+            if (dTMDebug) sStartupError += "\nFar=="+niceDoubleMeters(dtmFar)+" A=" + niceDoubleMeters(dtmApproach) + " P="+niceDoubleMeters(dtmPrecision);
 
-//            sInitResults += "\nFar=="+niceDoubleMeters(dtmFar)+" A=" + niceDoubleMeters(dtmApproach) + " P="+niceDoubleMeters(dtmPrecision);
-
+            bCollisionWasSensor = false;
             tmCameraElapsedMs = -1; // no delay for next check  
             tmScanElapsedMs = 0;// do delay until check 
+            dtmRayCastQuadrant = 0;
 
             minAngleRad = 0.01f; // reset Gyro aim tolerance to default
         }
@@ -178,34 +229,60 @@ namespace IngameScript
         /// <param name="arrivalDistance">minimum distance for 'arrival'</param>
         /// <param name="arrivalState">state to use when 'arrived'</param>
         /// <param name="colDetectState">state to use when 'collision'</param>
-        /// <param name="bNoCollision">if True, don't do collision detection</param>
-        void doTravelMovement(Vector3D vTargetLocation, float arrivalDistance, int arrivalState, int colDetectState, bool bNoCollision=false)
+        /// <param name="bAsteroidTarget">if True, target location is in/near an asteroid.  don't collision detect with it</param>
+        void doTravelMovement(Vector3D vTargetLocation, float arrivalDistance, int arrivalState, int colDetectState, bool bAsteroidTarget=false)
         {
-            if(dTMDebug) Echo("dTM:" + arrivalState);
-            //		Vector3D vTargetLocation = vHome;// gpsCenter.GetPosition();
-            //    gpsCenter.CubeGrid.
+            bool bArrived = false;
+            if (dTMDebug)
+            {
+                Echo("dTM:" + current_state + "->" + arrivalState + "-C>" + colDetectState +" A:"+arrivalDistance);
+                Echo("W=" + btmWheels.ToString() + " S=" + btmSled.ToString() + " R=" + btmRotor.ToString());
+            }
+            //		Vector3D vTargetLocation = vHome;// shipOrientationBlock.GetPosition();
+            //    shipOrientationBlock.CubeGrid.
             if (tmShipController == null)
             {
-                InitDoTravelMovement(vTargetLocation, shipSpeedMax, gpsCenter);
+                // first (for THIS target) time init
+                InitDoTravelMovement(vTargetLocation, shipSpeedMax, shipOrientationBlock);
             }
 
             if(tmCameraElapsedMs>=0) tmCameraElapsedMs += Runtime.TimeSinceLastRun.TotalMilliseconds;
             if(tmScanElapsedMs>=0) tmScanElapsedMs += Runtime.TimeSinceLastRun.TotalMilliseconds;
 
             Vector3D vVec = vTargetLocation - tmShipController.CenterOfMass;
-            //	Vector3D vVec = vTargetLocation - gpsCenter.GetPosition();
-            //		debugGPSOutput("vTargetLocation", vTargetLocation);
+
             double distance = vVec.Length();
 
-            if(dTMDebug) Echo("dTM:distance=" + niceDoubleMeters(distance));
-            if(dTMDebug) Echo("dTM:velocity=" + velocityShip.ToString("0.00"));
-            if(dTMDebug) Echo("dTM:tmMaxSpeed=" + tmMaxSpeed.ToString("0.00"));
+            // TODO: Adjust targetlocation for gravity and min altitude.
+            if (NAVGravityMinElevation > 0 && dGravity > 0)
+            {
+                // Need some trig here to calculate angle/distance to ground and target above ground
+                // Have: our altitude. Angle to target. Distance to target.
+                // iff target is 'below' us, then raise effective target to maintain min alt
+                // iff target is 'above' us..  then raise up to it..
 
+
+                // cheat for now.
+                if (distance < (arrivalDistance+ NAVGravityMinElevation))
+                    bArrived = true;
+
+            }
+
+            if (dTMDebug)
+            {
+                Echo("dTM:distance=" + niceDoubleMeters(distance) + " ("+ arrivalDistance.ToString()+")");
+                Echo("dTM:velocity=" + velocityShip.ToString("0.00"));
+                Echo("dTM:tmMaxSpeed=" + tmMaxSpeed.ToString("0.00"));
+            }
             if (distance < arrivalDistance)
+                bArrived = true;
+
+            if (bArrived)
             {
                 ResetMotion(); // start the stopping
                 current_state = arrivalState; // we have arrived
                 ResetTravelMovement(); // reset our brain so we re-calculate for the next time we're called
+                // TODO: Turn brakes ON (if not done in ResetMotion())
                 bWantFast = true; // process this quickly
                 return;
             }
@@ -213,15 +290,37 @@ namespace IngameScript
 
             List<IMySensorBlock> aSensors = null;
 
-            double stoppingDistance = calculateStoppingDistance(thrustTmBackwardList, velocityShip, 0);
-//            Echo("StoppingD=" + niceDoubleMeters(stoppingDistance));
+            double stoppingDistance =0;
+            if (!(btmWheels || btmRotor))
+            {
+//                if (dTMDebug) Echo("CalcStopD()");
 
+                stoppingDistance = calculateStoppingDistance(thrustTmBackwardList, velocityShip, 0);
+            }
+            // TODO: calculate stopping D for wheels
+
+//            Echo("dtmStoppingD=" + niceDoubleMeters(stoppingDistance));
+
+            if (sensorsList.Count > 0)
+            {
+                //                    float fScanDist = Math.Min(1f, (float)stoppingDistance * 1.5f);
+                float fScanDist = Math.Min(tmMaxSensorM, (float)stoppingDistance * 1.5f);
+                if(!dTMUseCameraCollision)   SensorSetToShip(tmSB, 1, 1, 1, 1, fScanDist, 0);
+                else  SensorSetToShip(tmSB, 0, 0, 0, 0, fScanDist, 0);
+
+            }
+            //            else Echo("No Sensor for Travel movement");
             bool bAimed = false;
 
-            if (btmSled || btmRotor)
+            Vector3D grav = (shipOrientationBlock as IMyShipController).GetNaturalGravity();
+            if (
+                btmSled 
+                || btmRotor
+                )
             {
+
                 double yawangle = -999;
-                yawangle = CalculateYaw(vTargetLocation, gpsCenter);
+                yawangle = CalculateYaw(vTargetLocation, shipOrientationBlock);
                 Echo("yawangle=" + yawangle.ToString());
                 if (btmSled)
                 {
@@ -235,9 +334,50 @@ namespace IngameScript
                 }
                 bAimed = Math.Abs(yawangle) < .05;
             }
+            else if(btmWheels && btmHasGyros)
+            {
+                Echo("Wheels W/ Gyro");
+                double yawangle = -999;
+                yawangle = CalculateYaw(vTargetLocation, shipOrientationBlock);
+                Echo("yawangle=" + yawangle.ToString());
+                bAimed = Math.Abs(yawangle) < .05;
+                if (!bAimed)
+                {
+                    WheelsPowerUp(0, 5);
+//                    WheelsSetFriction(0);
+                    DoRotate(yawangle, "Yaw");
+                }
+                else WheelsSetFriction(50);
+            }
+            else if(btmWheels) // & ! btmHasGyro)
+            {
+                Echo("Wheels with no gyro...");
+                double yawangle = CalculateYaw(vTargetLocation, shipOrientationBlock);
+                Echo("yawangle=" + yawangle.ToString());
+                bAimed = Math.Abs(yawangle) < .05;
+                if (!bAimed)
+                {
+                    // TODO: rotate with wheels..
+                }
+                else WheelsSetFriction(50);
+            }
             else
             {
-                bAimed = GyroMain("forward", vVec, gpsCenter);
+                if (grav.Length() > 0)
+                { // in gravity. try to stay aligned to gravity, but change yaw to aim at location.
+                    Echo("DTM: In Gravity using:"+shipOrientationBlock.CustomName);
+                    bool bGravAligned = GyroMain("", grav, shipOrientationBlock);
+//                    if (bGravAligned)
+                    {
+                        double yawangle = CalculateYaw(vTargetLocation, shipOrientationBlock);
+                        DoRotate(yawangle, "Yaw");
+                        bAimed = Math.Abs(yawangle) < .05;
+                    }
+                }
+                else
+                {
+                    bAimed = GyroMain("forward", vVec, shipOrientationBlock);
+                }
             }
 
             tmShipController.DampenersOverride = true;
@@ -245,105 +385,260 @@ namespace IngameScript
             if((distance - stoppingDistance) < arrivalDistance)
             { // we are within stopping distance, so start slowing
                 minAngleRad = 0.005f;// aim tighter (next time)
-    Echo("Waiting for stop");
+                StatusLog("\"Arriving at target.  Slowing", textPanelReport);
+                Echo("Waiting for stop");
                 if (!bAimed) bWantFast = true;
                 ResetMotion();
                 return;
             }
-
             if (bAimed)
             {
                 bWantMedium = true;
                 // we are aimed at location
                 Echo("Aimed");
                 gyrosOff();
-
-                if (sensorsList.Count > 0)
-                {
-                    //                    float fScanDist = Math.Min(1f, (float)stoppingDistance * 1.5f);
-                    float fScanDist = Math.Min(50f, (float)stoppingDistance * 1.5f);
-                    setSensorShip(tmSB, 0, 0, 0, 0, fScanDist, 0);
-                }
-                if (tmScanElapsedMs > tmScanWaitMs || tmScanElapsedMs < 0 && !bNoCollision)
+                if (btmWheels) WheelsSetFriction(50);
+                if (
+                    dTMUseSensorCollision
+                    && (tmScanElapsedMs > dSensorSettleWaitMS  || tmScanElapsedMs < 0 )
+                    )
                 {
                     tmScanElapsedMs = 0;
-                    aSensors = activeSensors();
+                    aSensors = SensorsGetActive();
+                    
                     if (aSensors.Count > 0)
                     {
-                        int i = 0;
 
-                        //                    for (int i = 0; i < aSensors.Count; i++)
+                        var entities = new List<MyDetectedEntityInfo>();
+                        string s = "";
+                        for (int i1 = 0; i1 < aSensors.Count; i1++) // we only use one sensor
                         {
-                            string s = "";
-                            s += "\nSensor TRIGGER!";
-                            s += "\nName: " + aSensors[i].LastDetectedEntity.Name;
-                            s += "\nType: " + aSensors[i].LastDetectedEntity.Type;
-                            s += "\nRelationship: " + aSensors[i].LastDetectedEntity.Relationship;
-                            s += "\n";
-                            if (dTMDebug)
+                            aSensors[i1].DetectedEntities(entities);
+                            int j1 = 0;
+                            bool bValidCollision = false;
+                            if (entities.Count > 0) bValidCollision = true;
+
+                            for (; j1 < entities.Count; j1++)
                             {
-                                Echo(s);
-                                StatusLog(s, textLongStatus);
+                                
+                                s = "\nSensor TRIGGER!";
+                                s += "\nName: " + entities[j1].Name;
+                                s += "\nType: " + entities[j1].Type;
+                                s += "\nRelationship: " + entities[j1].Relationship;
+                                s += "\n";
+                                if (dTMDebug)
+                                {
+                                    Echo(s);
+                                    StatusLog(s, textLongStatus);
+                                }
+                                if (entities[j1].Type == MyDetectedEntityType.Planet)
+                                {
+                                    bValidCollision = false;
+                                }
+                                if(entities[j1].Type==MyDetectedEntityType.LargeGrid
+                                    || entities[j1].Type==MyDetectedEntityType.SmallGrid
+                                    )
+                                {
+                                    if (entities[j1].BoundingBox.Contains(vTargetLocation) != ContainmentType.Disjoint)
+                                    {
+                                        if (dTMDebug)
+                                            Echo("Ignoring collision because we want to be INSIDE");
+                                        // if the target is inside the BB of the target, ignore the collision
+                                        bValidCollision = false;
+                                    }
+                                }
+                                if (bValidCollision) break;
+
                             }
-                            // save what we detected
-                            lastDetectedInfo = aSensors[i].LastDetectedEntity;
-                            // something in way.
-                            ResetTravelMovement();
-                            current_state = colDetectState; // set the collision detetected state
-                            bWantFast = true; // process next state quickly
-                            ResetMotion(); // start stopping
-                            return;
+
+                            if (bValidCollision)
+                            {
+                                // something in way.
+                                // save what we detected
+                                lastDetectedInfo = entities[j1];
+                                ResetTravelMovement();
+                                current_state = colDetectState; // set the collision detetected state
+                                bCollisionWasSensor = true;
+                                bWantFast = true; // process next state quickly
+                                ResetMotion(); // start stopping
+                                return;
+                            }
                         }
                     }
                     else lastDetectedInfo = new MyDetectedEntityInfo(); // since we found nothing, clear it.
                 }
- //               double scanDistance = stoppingDistance * 2;
-                double scanDistance = stoppingDistance * 1.05;
+                double scanDistance = stoppingDistance * 2;
+ //               double scanDistance = stoppingDistance * 1.05;
+//                if (bAsteroidTarget) scanDistance *= 2;
                 //                if (btmRotor || btmSled)
                 {
                     if (scanDistance < 100)
-                        if (distance < 1000)
+                    {
+                        if (distance < 500)
                             scanDistance = distance;
-                        else scanDistance = 1000;
+                        else scanDistance = 500;
+                    }
                     scanDistance = Math.Min(distance, scanDistance);
                 }
 
                 //               if (dTMDebug)
+                if(dTMUseCameraCollision)
                 {
-                    Echo("Scanning distance=" + scanDistance);
+//                    Echo("Scanning distance=" + niceDoubleMeters(scanDistance));
                 }
                 if (
-                    (tmCameraElapsedMs > tmCameraWaitMs || tmCameraElapsedMs < 0) // it is time to scan..
+                    dTMUseCameraCollision
+                    && (tmCameraElapsedMs > tmCameraWaitMs || tmCameraElapsedMs < 0) // it is time to scan..
                     && distance > tmMaxSensorM // if we are in sensor range, we don't need to scan with cameras
-                    && !bNoCollision
+//                    && !bAsteroidTarget
                     )
                 {
-                    tmCameraElapsedMs = 0;
 
-                    if (doCameraScan(cameraForwardList, scanDistance))
+                    OrientedBoundingBoxFaces orientedBoundingBox = new OrientedBoundingBoxFaces(shipOrientationBlock);
+                    Vector3D[] points = new Vector3D[4];
+                    orientedBoundingBox.GetFaceCorners(OrientedBoundingBoxFaces.LookupFront, points); // front output order is BL, BR, TL, TR
+
+                    // assumes moving forward...
+                    // May 29, 2018 do a BB forward scan instead of just center..
+                    bool bDidScan = false;
+                    Vector3D vTarget;
+                    switch (dtmRayCastQuadrant)
                     {
+                        case 0:
+                            if (doCameraScan(cameraForwardList, scanDistance))
+                            {
+                                bDidScan = true;
+                            }
+                            break;
+                        case 1:
+                            vTarget = points[2] + shipOrientationBlock.WorldMatrix.Forward * distance;
+                            if(doCameraScan(cameraForwardList, vTarget))
+                            {
+                                bDidScan = true;
+                            }
+                            break;
+                        case 2:
+                            vTarget = points[3] + shipOrientationBlock.WorldMatrix.Forward * distance;
+                            if (doCameraScan(cameraForwardList, vTarget))
+                            {
+                                bDidScan = true;
+                            }
+                            break;
+                        case 3:
+                            vTarget = points[0] + shipOrientationBlock.WorldMatrix.Forward * distance;
+                            if (doCameraScan(cameraForwardList, vTarget))
+                            {
+                                bDidScan = true;
+                            }
+                            break;
+                        case 4:
+                            vTarget = points[1] + shipOrientationBlock.WorldMatrix.Forward * distance;
+                            if (doCameraScan(cameraForwardList, vTarget))
+                            {
+                                bDidScan = true;
+                            }
+                            break;
+                        case 5:
+                            // check center again.  always full length
+                            if (doCameraScan(cameraForwardList, scanDistance))
+                            {
+                                bDidScan = true;
+                            }
+                            break;
+                        case 6:
+                            vTarget = points[2] + shipOrientationBlock.WorldMatrix.Forward * distance/2;
+                            if (doCameraScan(cameraForwardList, vTarget))
+                            {
+                                bDidScan = true;
+                            }
+                            break;
+                        case 7:
+                            vTarget = points[3] + shipOrientationBlock.WorldMatrix.Forward * distance/2;
+                            if (doCameraScan(cameraForwardList, vTarget))
+                            {
+                                bDidScan = true;
+                            }
+                            break;
+                        case 8:
+                            vTarget = points[0] + shipOrientationBlock.WorldMatrix.Forward * distance/2;
+                            if (doCameraScan(cameraForwardList, vTarget))
+                            {
+                                bDidScan = true;
+                            }
+                            break;
+                        case 9:
+                            vTarget = points[1] + shipOrientationBlock.WorldMatrix.Forward * distance/2;
+                            if (doCameraScan(cameraForwardList, vTarget))
+                            {
+                                bDidScan = true;
+                            }
+                            break;
+                    }
+
+                    if (bDidScan)
+                    {
+                        dtmRayCastQuadrant++;
+                        if (dtmRayCastQuadrant > 9) dtmRayCastQuadrant = 0;
+
+                        tmCameraElapsedMs = 0;
                         // the routine sets lastDetetedInfo itself if scan succeeds
                         if (!lastDetectedInfo.IsEmpty())
                         {
+                            bool bValidCollision = true;
+                            // assume it MIGHT be asteroid and check
+//                            if (bAsteroidTarget)
+                            {
+                                if(lastDetectedInfo.Type==MyDetectedEntityType.Asteroid)
+                                {
+                                    if(lastDetectedInfo.BoundingBox.Contains(vTargetLocation)!=ContainmentType.Disjoint)
+                                    { // if the target is inside the BB of the target, ignore the collision
+                                        bValidCollision = false;
+                                        // check to see if we are close enough to surface of asteroid
+                                        double astDistance=((Vector3D)lastDetectedInfo.HitPosition-shipOrientationBlock.GetPosition()).Length();
+                                        if((astDistance-stoppingDistance)<arrivalDistance)
+                                        {
+                                            ResetMotion();
+                                            current_state = arrivalState;
+                                            ResetTravelMovement();
+                                            // don't need 'fast'...
+                                            return;
+                                        }
+                                    }
+                                }
+                                else if (lastDetectedInfo.Type == MyDetectedEntityType.Planet)
+                                {
+                                    // ignore
+                                    bValidCollision = false;
+                                }
+
+                                else
+                                {
+                                }
+                            }
                             if (dTMDebug)
                             {
                                 //                            Echo(s);
-                                StatusLog("Camera Trigger collision", textLongStatus);
+                                Echo("raycast hit:" + lastDetectedInfo.Type.ToString());
+                                StatusLog("Camera Trigger collision", textPanelReport);
                             }
-                            sInitResults += "Camera collision: "+scanDistance+"\n" + lastDetectedInfo.Name+":"+ lastDetectedInfo.Type +"\n";
-                            // something in way.
-                            ResetTravelMovement(); // reset our brain for next call
-                            current_state = colDetectState; // set the detetected state
-                            bWantFast = true; // process next state quickly
-                            ResetMotion(); // start stopping
-                            return;
+                            if (bValidCollision)
+                            {
+//                                sInitResults += "Camera collision: " + scanDistance + "\n" + lastDetectedInfo.Name + ":" + lastDetectedInfo.Type + "\n";
+                                // something in way.
+                                ResetTravelMovement(); // reset our brain for next call
+                                current_state = colDetectState; // set the detetected state
+                                bCollisionWasSensor = false;
+                                bWantFast = true; // process next state quickly
+                                ResetMotion(); // start stopping
+                                return;
+                            }
                         }
                         else
                         {
                             if (dTMDebug)
                             {
                                 //                            Echo(s);
-                                StatusLog("Camera Scan Clear", textLongStatus);
+                                StatusLog("Camera Scan Clear", textPanelReport);
                             }
                         }
                     }
@@ -352,7 +647,7 @@ namespace IngameScript
                         if (dTMDebug)
                         {
                             //                            Echo(s);
-                            StatusLog("No Scan Available", textLongStatus);
+                            StatusLog("No Scan Available", textPanelReport);
                         }
                     }
                 }
@@ -369,129 +664,46 @@ namespace IngameScript
                 {
                     // we are 'far' from target location.  use fastest movement
 //                    if(dTMDebug)
-                        Echo("dtmFar");
+                        Echo("dtmFar. Target Vel=" + dtmFarSpeed.ToString("N0"));
+                    StatusLog("\"Far\" from target\n Target Speed="+dtmFarSpeed.ToString("N0")+"m/s", textPanelReport);
 
                     TmDoForward(dtmFarSpeed, 100f);
-                    /*
-                    if (velocityShip < 1)
-                        powerUpThrusters(thrustTmForwardList, 100f);
-                    else if (velocityShip < dtmFarSpeed * .75)
-                        powerUpThrusters(thrustTmForwardList, 25f);
-                    else if (velocityShip < dtmFarSpeed * .85)
-                        powerUpThrusters(thrustTmForwardList, 15f);
-                    else if (velocityShip <= dtmFarSpeed * .98)
-                    {
-                        powerUpThrusters(thrustTmForwardList, 1f);
-                    }
-                    else if (velocityShip >= dtmFarSpeed * 1.02)
-                    {
-                        powerDownThrusters(thrustAllList);
-                    }
-                    else // sweet spot
-                    {
-                        powerDownThrusters(thrustAllList); // turns ON all thrusters
-                        powerDownThrusters(thrustTmBackwardList, thrustAll, true); // turns off the 'backward' thrusters... so we don't slow down
-//                        tmShipController.DampenersOverride = false; // this would also work, but then we don't get ship moving towards aim point as we correct
-                    }
-                    */
                 }
                 else if (distance > dtmApproach && !btmPrecision)
                 {
                     // we are on 'approach' to target location.  use a good speed
 //                    if(dTMDebug)
-                        Echo("Approach");
+                        Echo("Approach. Target Vel="+dtmApproachSpeed.ToString("N0"));
+
+                    StatusLog("\"Approach\" distance from target\n Target Speed=" + dtmApproachSpeed.ToString("N0") + "m/s", textPanelReport);
                     btmApproach = true;
                     TmDoForward(dtmApproachSpeed, 100f);
-                    /*
-                    if (velocityShip < 1)
-                        powerUpThrusters(thrustTmForwardList, 100);
-                    else if (velocityShip < dtmApproachSpeed * .75)
-                        powerUpThrusters(thrustTmForwardList, 25f);
-                    else if (velocityShip < dtmApproachSpeed * .85)
-                        powerUpThrusters(thrustTmForwardList, 15f);
-                    else if (velocityShip <= dtmApproachSpeed * .98)
-                    {
-                        powerUpThrusters(thrustTmForwardList, 1f);
-                    }
-                    else if (velocityShip >= dtmApproachSpeed * 1.02)
-                    {
-                        powerDownThrusters(thrustAllList);
-                    }
-                    else // sweet spot
-                    {
-                        powerDownThrusters(thrustAllList); // turns ON all thrusters
-                        powerDownThrusters(thrustTmBackwardList, thrustAll, true); // turns off the 'backward' thrusters... so we don't slow down
-//                        tmShipController.DampenersOverride = false; // this would also work, but then we don't get ship moving towards aim point as we correct
-                    }
-                    */
                 }
                 else if (distance > dtmPrecision && !btmClose)
                 {
                     // we are getting nearto our target.  use a slower speed
 //                    if(dTMDebug)
-                        Echo("Precision");
-                    if(!btmPrecision) minAngleRad = 0.005f;// aim tighter (next time)
+                        Echo("Precision. Target Vel=" + dtmPrecisionSpeed.ToString("N0"));
+                    StatusLog("\"Precision\" distance from target\n Target Speed=" + dtmPrecisionSpeed.ToString("N0") + "m/s", textPanelReport);
+                    if (!btmPrecision) minAngleRad = 0.005f;// aim tighter (next time)
                     btmPrecision = true;
-                    TmDoForward(dtmPrecisionSpeed, 55f);
-                    /*
-
-                     if (velocityShip < 1)
-                        powerUpThrusters(thrustTmForwardList, 55f);
-                    else if (velocityShip < dtmPrecisionSpeed * .75)
-                        powerUpThrusters(thrustTmForwardList, 25f);
-                    else if (velocityShip < dtmPrecisionSpeed * .85)
-                        powerUpThrusters(thrustTmForwardList, 15f);
-                    else if (velocityShip <= dtmPrecisionSpeed * .98)
-                    {
-                        powerUpThrusters(thrustTmForwardList, 1f);
-                    }
-                    else if (velocityShip >= dtmPrecisionSpeed * 1.02)
-                    {
-                        powerDownThrusters(thrustAllList);
-                    }
-                    else // sweet spot
-                    {
-                        powerDownThrusters(thrustAllList); // turns ON all thrusters
-                        powerDownThrusters(thrustTmBackwardList, thrustAll, true); // turns off the 'backward' thrusters... so we don't slow down
-//                        tmShipController.DampenersOverride = false; // this would also work, but then we don't get ship moving towards aim point as we correct
-                    }
-                    */
+                    TmDoForward(dtmPrecisionSpeed, 100f);
                 }
                 else
                 {
                     // we are very close to our target. use a very small speed
 //                    if(dTMDebug)
-                        Echo("Close");
-                     if(!btmClose) minAngleRad = 0.005f;// aim tighter (next time)
+                        Echo("Close. Target Speed=" + dtmCloseSpeed.ToString("N0") + "m/s");
+                    StatusLog("\"Close\" distance from target\n Target Speed=" + dtmCloseSpeed.ToString("N0") + "m/s", textPanelReport);
+                    if (!btmClose) minAngleRad = 0.005f;// aim tighter (next time)
                    btmClose = true;
-                    TmDoForward(dtmCloseSpeed, 55f);
-                    /*
-                     if (velocityShip < 1)
-                        powerUpThrusters(thrustTmForwardList, 55f);
-                    else if (velocityShip < dtmCloseSpeed * .75)
-                        powerUpThrusters(thrustTmForwardList, 25f);
-                    else if (velocityShip < dtmCloseSpeed * .85)
-                        powerUpThrusters(thrustTmForwardList, 15f);
-                    else if (velocityShip <= dtmCloseSpeed * .98)
-                    {
-                        powerUpThrusters(thrustTmForwardList, 1f);
-                    }
-                    else if (velocityShip >= dtmCloseSpeed * 1.02)
-                    {
-                        powerDownThrusters(thrustAllList);
-                    }
-                    else // sweet spot
-                    {
-                        powerDownThrusters(thrustAllList); // turns ON all thrusters
-                        powerDownThrusters(thrustTmBackwardList, thrustAll, true); // turns off the 'backward' thrusters... so we don't slow down
-//                        tmShipController.DampenersOverride = false; // this would also work, but then we don't get ship moving towards aim point as we correct
-                    }
-                    */
+                    TmDoForward(dtmCloseSpeed, 100f);
                 }
             }
             else
             {
-                if(dTMDebug) Echo("Aiming");
+                StatusLog("Aiming at target", textPanelReport);
+                if (dTMDebug) Echo("Aiming");
                 bWantFast = true;
                 tmShipController.DampenersOverride = true;
                 if (velocityShip < 5)
@@ -512,54 +724,44 @@ namespace IngameScript
         /// <summary>
         /// returns the optimal max speed based on available braking thrust and ship mass
         /// </summary>
-        /// <param name="thrustUpList">Thrusters to use</param>
+        /// <param name="thrustList">Thrusters to use</param>
         /// <param name="distance">current distance to target location</param>
         /// <returns>optimal max speed (may be game max speed)</returns>
-        double CalculateOptimalSpeed(List<IMyTerminalBlock> thrustUpList, double distance)
+        double CalculateOptimalSpeed(List<IMyTerminalBlock> thrustList, double distance, double maxSpeed)
         {
-            // 
+            //
+//            Echo("#thrusters=" + thrustList.Count.ToString());
+            if (thrustList.Count < 1) return fMaxWorldMps;
+
             MyShipMass myMass;
-            myMass = ((IMyShipController)gpsCenter).CalculateShipMass();
-            double maxThrust = calculateMaxThrust(thrustUpList);
+            myMass = ((IMyShipController)shipOrientationBlock).CalculateShipMass();
+            double maxThrust = calculateMaxThrust(thrustList);
             double maxDeltaV = maxThrust / myMass.PhysicalMass;
             // Magic..
             double optimalV, secondstozero, stoppingM;
-            optimalV = ((distance * .75) / 2) / (maxDeltaV); // determined by experimentation and black magic
+            optimalV = maxSpeed;
+//            secondstozero = optimalV / maxDeltaV;
+//            stoppingM = optimalV / 2 * secondstozero;
+            double aDistance = distance / 2;  // accelerate and decel
 
+//            optimalV = ((distance * .75) / 2) / (maxDeltaV); // determined by experimentation and black magic
+            if(dTMDebug) sStartupError += "COS OptimalV="+niceDoubleMeters(optimalV);
+//            Echo("COS");
             do
             {
+//                Echo("COS:DO");
                 secondstozero = optimalV / maxDeltaV;
                 stoppingM = optimalV / 2 * secondstozero;
-                if (stoppingM > distance)
+                if (stoppingM > aDistance)
                 {
-                    optimalV *=0.85;
+                    optimalV *=0.85; // reduce by 15% and try again
                 }
+                //                Echo("stoppingM=" + stoppingM.ToString("F1") + " distance=" + distance.ToString("N1"));
+                if(dTMDebug) sStartupError += "stoppingM=" + niceDoubleMeters(stoppingM) + " distance=" + niceDoubleMeters(distance);
             }
-            while (stoppingM > distance);
+            while (stoppingM > aDistance);
+//            Echo("COS:X");
             return optimalV;
-        }
-
-        /// <summary>
-        /// Stopping distance based on thrust available, mass, current velocity and an optional gravity factor
-        /// </summary>
-        /// <param name="thrustUpList">list of thrusters to use</param>
-        /// <param name="currentV">velocity to calculage</param>
-        /// <param name="dGrav">optional gravity factor</param>
-        /// <returns>stopping distance in meters</returns>
-        double calculateStoppingDistance(List<IMyTerminalBlock> thrustUpList, double currentV, double dGrav=0)
-        {
-            MyShipMass myMass;
-            myMass = ((IMyShipController)gpsCenter).CalculateShipMass();
-            double hoverthrust = 0;
-            hoverthrust = myMass.PhysicalMass * dGrav * 9.810;
-            double maxThrust = calculateMaxThrust(thrustUpList);
-            double maxDeltaV = (maxThrust - hoverthrust) / myMass.PhysicalMass;
-            double secondstozero = currentV / maxDeltaV;
-//            Echo("secondstozero=" + secondstozero.ToString("0.00"));
-            // velocity will drop as we brake. at half way we should be at half speed
-            double stoppingM = currentV / 2 * secondstozero; 
-//            Echo("stoppingM=" + stoppingM.ToString("0.00"));
-            return stoppingM;
         }
 
 
@@ -590,7 +792,7 @@ namespace IngameScript
             else
             {
 //                StatusLog("NO hitposition", gpsPanel);
-                vHit = gpsCenter.GetPosition();
+                vHit = shipOrientationBlock.GetPosition();
             }
 
             Vector3D vCenter = lastDetectedInfo.Position;
@@ -618,7 +820,7 @@ namespace IngameScript
             // the OLD way.
 
             //            vAvoid = vCenter - vVec * (radius + shipDim.WidthInMeters() * 5);
-            //	 Vector3D gpsCenter.GetPosition() - vAvoid;
+            //	 Vector3D shipOrientationBlock.GetPosition() - vAvoid;
 
             Vector3D cross;
 
@@ -649,13 +851,20 @@ namespace IngameScript
         MyDetectedEntityInfo backwardDetectedInfo = new MyDetectedEntityInfo();
         MyDetectedEntityInfo forwardDetectedInfo = new MyDetectedEntityInfo();
 
-//        bool bEscapeGrid = false;
+        //        bool bEscapeGrid = false;
+
+        QuadrantCameraScanner ScanEscapeFrontScanner;
+        QuadrantCameraScanner ScanEscapeBackScanner;
+        QuadrantCameraScanner ScanEscapeLeftScanner;
+        QuadrantCameraScanner ScanEscapeRightScanner;
+        QuadrantCameraScanner ScanEscapeTopScanner;
+        QuadrantCameraScanner ScanEscapeBottomScanner;
 
         /// <summary>
         /// Initialize the escape scanning (mini-pathfinding)
         /// Call once to setup
         /// </summary>
-        void initEscapeScan()
+        void initEscapeScan(bool bWantBack = false, bool bWantForward = true)
         {
             if(tmCameraElapsedMs>=0) tmCameraElapsedMs += Runtime.TimeSinceLastRun.TotalMilliseconds;
             if(tmScanElapsedMs>=0) tmScanElapsedMs += Runtime.TimeSinceLastRun.TotalMilliseconds;
@@ -664,9 +873,9 @@ namespace IngameScript
             bScanRight = true;
             bScanUp = true;
             bScanDown = true;
-            bScanBackward = false;// don't rescan where we just came from..
-                                  //	bScanBackward = true;
-            bScanForward = true;
+            bScanBackward = bWantBack;// don't rescan where we just came from..
+            bScanForward = bWantForward;
+
             leftDetectedInfo = new MyDetectedEntityInfo();
             rightDetectedInfo = new MyDetectedEntityInfo();
             upDetectedInfo = new MyDetectedEntityInfo();
@@ -689,107 +898,175 @@ namespace IngameScript
             if (cameraDownList.Count < 1) bScanDown = false;
             if (cameraForwardList.Count < 1) bScanForward = false;
             if (cameraBackwardList.Count < 1) bScanBackward = false;
+            ScanEscapeFrontScanner = new QuadrantCameraScanner(this, cameraForwardList,200,45,45,2,1,5,200,true);
+            ScanEscapeBackScanner = new QuadrantCameraScanner(this, cameraBackwardList, 200, 45, 45, 2, 1, 5, 200, true);
+            ScanEscapeLeftScanner = new QuadrantCameraScanner(this, cameraLeftList, 200, 45, 45, 2, 1, 5, 200, true);
+            ScanEscapeRightScanner = new QuadrantCameraScanner(this, cameraRightList, 200, 45, 45, 2, 1, 5, 200, true);
+            ScanEscapeTopScanner = new QuadrantCameraScanner(this, cameraUpList, 200, 45, 45, 2, 1, 5, 200, true);
+            ScanEscapeBottomScanner = new QuadrantCameraScanner(this, cameraDownList, 200, 45, 45, 2, 1, 5, 200, true);
 
         }
         /// <summary>
-        /// Perform the pathfinding. Call until it returns true
+        /// Perform the pathfinding. Call this until it returns true
         /// </summary>
-        /// <returns>true if vAvoid now contains the location to go to to (try to) escapet</returns>
+        /// <returns>true if vAvoid now contains the location to go to to (try to) escape</returns>
         bool scanEscape()
         {
             if(tmCameraElapsedMs>=0) tmCameraElapsedMs += Runtime.TimeSinceLastRun.TotalMilliseconds;
             if(tmScanElapsedMs>=0) tmScanElapsedMs += Runtime.TimeSinceLastRun.TotalMilliseconds;
 
-            MatrixD worldtb = gpsCenter.WorldMatrix;
+            MatrixD worldtb = shipOrientationBlock.WorldMatrix;
             Vector3D vVec = worldtb.Forward;
             Echo("ScanEscape()");
             if (bScanLeft)
             {
+//                sStartupError+="\nLeft";
                 if (doCameraScan(cameraLeftList, 200))
                 {
                     bScanLeft = false;
                     leftDetectedInfo = lastDetectedInfo;
                     if (lastDetectedInfo.IsEmpty())
                     {
+//                        sStartupError += "\n Straight Camera HIT!";
                         vVec = worldtb.Left;
                         vVec.Normalize();
-                        vAvoid = gpsCenter.GetPosition() + vVec * 200;
+                        vAvoid = shipOrientationBlock.GetPosition() + vVec * 200;
                         return true;
                     }
+                }
+                bScanLeft = ScanEscapeLeftScanner.DoScans();
+                if(ScanEscapeLeftScanner.bFoundExit)
+                {
+//                    sStartupError += "\n Quadrant Camera HIT!";
+                    leftDetectedInfo = lastDetectedInfo;
+                    vAvoid = shipOrientationBlock.GetPosition() + ScanEscapeLeftScanner.vEscapeTarget * 200;
+                    return true;
                 }
             }
             if (bScanRight)
             {
+//                sStartupError += "\nRight";
                 if (doCameraScan(cameraRightList, 200))
                 {
                     bScanRight = false;
                     rightDetectedInfo = lastDetectedInfo;
                     if (lastDetectedInfo.IsEmpty())
                     {
+//                        sStartupError += "\n Straight Camera HIT!";
                         vVec = worldtb.Right;
                         vVec.Normalize();
-                        vAvoid = gpsCenter.GetPosition() + vVec * 200;
+                        vAvoid = shipOrientationBlock.GetPosition() + vVec * 200;
                         return true;
                     }
+                }
+                bScanRight = ScanEscapeRightScanner.DoScans();
+                if (ScanEscapeRightScanner.bFoundExit)
+                {
+//                    sStartupError += "\n Quadrant Camera HIT!";
+                    rightDetectedInfo = lastDetectedInfo;
+                    vAvoid = shipOrientationBlock.GetPosition() + ScanEscapeRightScanner.vEscapeTarget * 200;
+                    return true;
                 }
             }
             if (bScanUp)
             {
+//                sStartupError += "\nUp";
                 if (doCameraScan(cameraUpList, 200))
                 {
-                    upDetectedInfo = lastDetectedInfo;
+//                  upDetectedInfo = lastDetectedInfo;
                     bScanUp = false;
                     if (lastDetectedInfo.IsEmpty())
                     {
+                        sStartupError += "\n Straight Camera HIT!";
                         vVec = worldtb.Up;
                         vVec.Normalize();
-                        vAvoid = gpsCenter.GetPosition() + vVec * 200;
+                        vAvoid = shipOrientationBlock.GetPosition() + vVec * 200;
                         return true;
                     }
+                }
+                bScanUp = ScanEscapeTopScanner.DoScans();
+                if (ScanEscapeTopScanner.bFoundExit)
+                {
+//                    sStartupError += "\n Quadrant Camera HIT!";
+                    upDetectedInfo = lastDetectedInfo;
+                    vAvoid = shipOrientationBlock.GetPosition() + ScanEscapeTopScanner.vEscapeTarget * 200;
+                    return true;
                 }
             }
             if (bScanDown)
             {
+//                sStartupError += "\nDown";
                 if (doCameraScan(cameraDownList, 200))
                 {
+//                    sStartupError += "\n Straight Camera HIT!";
                     downDetectedInfo = lastDetectedInfo;
                     bScanDown = false;
                     if (lastDetectedInfo.IsEmpty())
                     {
                         vVec = worldtb.Down;
                         vVec.Normalize();
-                        vAvoid = gpsCenter.GetPosition() + vVec * 200;
+                        vAvoid = shipOrientationBlock.GetPosition() + vVec * 200;
                         return true;
                     }
+                }
+                bScanDown = ScanEscapeBottomScanner.DoScans();
+                if (ScanEscapeBottomScanner.bFoundExit)
+                {
+//                    sStartupError += "\n Quadrant Camera HIT!";
+                    downDetectedInfo = lastDetectedInfo;
+                    vAvoid = shipOrientationBlock.GetPosition() + ScanEscapeBottomScanner.vEscapeTarget * 200;
+                    return true;
                 }
             }
             if (bScanBackward)
             {
+//                sStartupError += "\nBack";
                 if (doCameraScan(cameraBackwardList, 200))
                 {
+//                    sStartupError += "\n Straight Camera HIT!";
                     backwardDetectedInfo = lastDetectedInfo;
                     bScanBackward = false;
                     if (lastDetectedInfo.IsEmpty())
                     {
                         vVec = worldtb.Backward;
                         vVec.Normalize();
-                        vAvoid = gpsCenter.GetPosition() + vVec * 200;
+                        vAvoid = shipOrientationBlock.GetPosition() + vVec * 200;
                         return true;
                     }
+                }
+                bScanBackward = ScanEscapeBackScanner.DoScans();
+                if (ScanEscapeBackScanner.bFoundExit)
+                {
+//                    sStartupError += "\n Quadrant Camera HIT!";
+                    backwardDetectedInfo = lastDetectedInfo;
+                    vAvoid = shipOrientationBlock.GetPosition() + ScanEscapeBackScanner.vEscapeTarget * 200;
+                    return true;
                 }
             }
             if (bScanForward)
             {
+//                sStartupError += "\nForward";
                 if (doCameraScan(cameraForwardList, 200))
                 {
                     bScanForward = false;
+                    forwardDetectedInfo = lastDetectedInfo;
                     if (lastDetectedInfo.IsEmpty())
                     {
+//                        sStartupError += "\n Straight Camera HIT!";
                         vVec = worldtb.Forward;
                         vVec.Normalize();
-                        vAvoid = gpsCenter.GetPosition() + vVec * 200;
+                        vAvoid = shipOrientationBlock.GetPosition() + vVec * 200;
                         return true;
                     }
+                }
+                bScanForward = ScanEscapeFrontScanner.DoScans();
+                if (ScanEscapeFrontScanner.bFoundExit)
+                {
+//                    sStartupError += "\n Quadrant Camera HIT!";
+                    forwardDetectedInfo = lastDetectedInfo;
+                    vAvoid = ScanEscapeFrontScanner.vEscapeTarget*200;
+                    vAvoid = shipOrientationBlock.GetPosition() + ScanEscapeFrontScanner.vEscapeTarget * 200;
+                    return true;
                 }
             }
 
@@ -802,7 +1079,7 @@ namespace IngameScript
             // nothing was 'clear'.  find longest vector and try to go that direction
             Echo("Scans done. Choose longest");
             MyDetectedEntityInfo furthest = backwardDetectedInfo;
-            Vector3D currentpos = gpsCenter.GetPosition();
+            Vector3D currentpos = shipOrientationBlock.GetPosition();
             vVec = worldtb.Backward;
             if (furthest.HitPosition == null || leftDetectedInfo.HitPosition != null && Vector3D.DistanceSquared(currentpos, (Vector3D)furthest.HitPosition) < Vector3D.DistanceSquared(currentpos, (Vector3D)leftDetectedInfo.HitPosition))
             {
@@ -834,7 +1111,7 @@ namespace IngameScript
             double distance = Vector3D.Distance(currentpos, (Vector3D)furthest.HitPosition);
             Echo("Distance=" + niceDoubleMeters(distance));
             vVec.Normalize();
-            vAvoid = gpsCenter.GetPosition() + vVec * distance / 2;
+            vAvoid = shipOrientationBlock.GetPosition() + vVec * distance / 2;
 /*
             if (distance<15)
             {
@@ -894,6 +1171,7 @@ namespace IngameScript
                 return true;
             }
 
+            Echo("not FAR enough: ERROR!");
             return false;
         }
 
@@ -923,27 +1201,77 @@ namespace IngameScript
 
         void TmDoForward(double maxSpeed, float maxThrust)
         {
-            if (!btmRotor)
+            if(btmWheels)
             {
                 if (velocityShip < 1)
+                {
+                    // full power, captain!
+                    WheelsPowerUp(maxThrust);
+                }
+                // if we need to go much faster or we are FAR and not near max speed
+                else if (velocityShip < maxSpeed * .75 || (!btmApproach && velocityShip < maxSpeed * .98))
+                {
+                    float delta = (float)maxSpeed / fMaxWorldMps * maxThrust;
+                    WheelsPowerUp(maxThrust);
+                }
+                else if (velocityShip < maxSpeed * .85)
+                    WheelsPowerUp(maxThrust);
+                else if (velocityShip <= maxSpeed * .98)
+                {
+                    WheelsPowerUp(maxThrust);
+                }
+                else if (velocityShip >= maxSpeed * 1.02)
+                {
+                    // TOO FAST
+                    WheelsPowerUp(0);
+                }
+                else // sweet spot
+                {
+                    WheelsPowerUp(1);
+                }
+
+            }
+            else if (!btmRotor)
+            {
+                powerDownThrusters(thrustTmBackwardList, thrustAll, true);
+                if (velocityShip < 1)
+                {
+                    // full power, captain!
                     powerUpThrusters(thrustTmForwardList, maxThrust);
-                else if (velocityShip < maxSpeed * .75)
-                    powerUpThrusters(thrustTmForwardList, 25f);
+                }
+                // if we need to go much faster or we are FAR and not near max speed
+                else if (velocityShip < maxSpeed * .75 || (!btmApproach && velocityShip < maxSpeed * .98))
+                {
+                    float delta = (float)maxSpeed / fMaxWorldMps * maxThrust;
+                    powerUpThrusters(thrustTmForwardList, delta);
+                }
                 else if (velocityShip < maxSpeed * .85)
                     powerUpThrusters(thrustTmForwardList, 15f);
                 else if (velocityShip <= maxSpeed * .98)
                 {
                     powerUpThrusters(thrustTmForwardList, 1f);
                 }
+                else if (velocityShip >= maxSpeed * 1.2)
+                {
+                    // WAY too fast..
+                    powerDownThrusters(thrustAllList);
+                }
+                else if (velocityShip >= maxSpeed * 1.1)
+                {
+                    powerUpThrusters(thrustTmBackwardList, 15f);
+                    //                    powerDownThrusters(thrustAllList);
+                }
                 else if (velocityShip >= maxSpeed * 1.02)
                 {
-                    powerDownThrusters(thrustAllList);
+                    powerUpThrusters(thrustTmBackwardList, 1f);
+//                    powerDownThrusters(thrustAllList);
                 }
                 else // sweet spot
                 {
                     powerDownThrusters(thrustAllList); // turns ON all thrusters
-                    powerDownThrusters(thrustTmBackwardList, thrustAll, true); // turns off the 'backward' thrusters... so we don't slow down
-                                                                               //                        tmShipController.DampenersOverride = false; // this would also work, but then we don't get ship moving towards aim point as we correct
+                    // turns off the 'backward' thrusters... so we don't slow down
+                    powerDownThrusters(thrustTmBackwardList, thrustAll, true);
+                    //                 tmShipController.DampenersOverride = false; // this would also work, but then we don't get ship moving towards aim point as we correct
                 }
             }
             else

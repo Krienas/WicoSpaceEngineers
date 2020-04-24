@@ -18,7 +18,11 @@ namespace IngameScript
 {
     partial class Program : MyGridProgram
     {
-        #region batterycheck
+        double maxBatteryPower = -1;
+        /// <summary>
+        /// current battery power. -1 means no batteries. percentage is 0->100
+        /// </summary>
+        int batteryPercentage = -1;
 
         List<IMyTerminalBlock> batteryList = new List<IMyTerminalBlock>();
 
@@ -27,7 +31,12 @@ namespace IngameScript
             if (block is IMyBatteryBlock)
             {
                 IMyBatteryBlock myb = block as IMyBatteryBlock;
-                return myb.OnlyRecharge;// myb.GetValueBool("Recharge");
+                // ChargeMode.Auto; 0
+                // ChargeMode.Discharge; 2
+                // ChargeMode.Recharge; 1
+                // 1.189
+                return (myb.ChargeMode == ChargeMode.Recharge);
+//                return myb.OnlyRecharge;// myb.GetValueBool("Recharge");
             }
             else return false;
         }
@@ -36,7 +45,9 @@ namespace IngameScript
             if (block is IMyBatteryBlock)
             {
                 IMyBatteryBlock myb = block as IMyBatteryBlock;
-                return myb.OnlyDischarge;// GetValueBool("Discharge");
+                //V 1.189
+                return (myb.ChargeMode == ChargeMode.Discharge);
+//                return myb.OnlyDischarge;// GetValueBool("Discharge");
             }
             else return false;
         }
@@ -83,12 +94,14 @@ namespace IngameScript
          * 
          * This is to prevent overloading power on the mother ship
          */
-        bool batteryCheck(int targetMax, bool bEcho = true, IMyTextPanel textBlock = null, bool bProgress = false)
+//        bool batteryCheck(int targetMax, bool bEcho = true, IMyTextPanel textBlock = null, bool bProgress = false)
+        bool batteryCheck(int targetMax, bool bEcho = true, bool bProgress = false)
         {
             float totalCapacity = 0;
             float totalCharge = 0;
             bool bFoundRecharging = false;
-            float f;
+            float f1;
+//            Echo("BC():" + batteryList.Count + " batteries");
 
             if (batteryList.Count < 1) initBatteries();
             if (batteryList.Count < 1) return false;
@@ -100,18 +113,19 @@ namespace IngameScript
                 float capacity = 0;
                 int percentthisbattery = 100;
                 IMyBatteryBlock b;
+
                 b = batteryList[ib] as IMyBatteryBlock;
-                f = b.MaxStoredPower;
-                capacity += f;
-                totalCapacity += f;
-                f = b.CurrentStoredPower;
-                charge += f;
-                totalCharge += f;
+                f1 = b.MaxStoredPower;
+                capacity += f1;
+                totalCapacity += f1;
+                f1 = b.CurrentStoredPower;
+                charge += f1;
+                totalCharge += f1;
                 if (capacity > 0)
                 {
-                    f = ((charge * 100) / capacity);
-                    f = (float)Math.Round(f, 0);
-                    percentthisbattery = (int)f;
+                    f1 = ((charge * 100) / capacity);
+                    f1 = (float)Math.Round(f1, 0);
+                    percentthisbattery = (int)f1;
                 }
                 string s;
                 s = "";
@@ -130,60 +144,101 @@ namespace IngameScript
                 s += percentthisbattery + "%";
                 s += ":" + batteryList[ib].CustomName;
                 if (bEcho) Echo(s);
-                if (textBlock != null) StatusLog(s, textBlock);
-                if (bProgress)
+                /*
+                if (textBlock != null)
                 {
-                    s = progressBar(percentthisbattery);
-                    if (textBlock != null) StatusLog(s, textBlock);
+                    StatusLog(s, textBlock);
+                    if (bProgress)
+                    {
+                        s = progressBar(percentthisbattery);
+                        StatusLog(s, textBlock);
+                    }
                 }
-                if (isRechargeSet(batteryList[ib]))
+                */
+                if (isRechargeSet(batteryList[ib]) && targetMax>0)
                 {
                     if (percentthisbattery < targetMax)
                         bFoundRecharging = true;
                     else if (percentthisbattery > 99)
-                        b.OnlyRecharge = false;
-//                    batteryList[ib].ApplyAction("Recharge");
+                    {
+                        //V 1.189
+                        b.ChargeMode = ChargeMode.Recharge;
+//                        b.OnlyRecharge = false;
+                    }
                 }
-                if (!b.OnlyRecharge && percentthisbattery < targetMax && !bFoundRecharging)
+                //V 1.189
+//                if (!b.OnlyRecharge && percentthisbattery < targetMax && !bFoundRecharging)
+                if (!(b.ChargeMode==ChargeMode.Recharge) && percentthisbattery < targetMax && !bFoundRecharging)
                 {
-                    Echo("Turning on Recharge for " + b.CustomName);
-                    b.OnlyDischarge = false;
-                    b.OnlyRecharge = true;
-                    b.SemiautoEnabled = false;
-//                    batteryList[ib].ApplyAction("Recharge");
+                    //                    Echo("Turning on Recharge for " + b.CustomName);
+                    // V 1.189
+                    b.ChargeMode = ChargeMode.Recharge;
+//                    b.OnlyDischarge = false;
+//                    b.OnlyRecharge = true;
+//                    b.SemiautoEnabled = false;
+
                     bFoundRecharging = true;
                 }
             }
             if (totalCapacity > 0)
             {
-                f = ((totalCharge * 100) / totalCapacity);
-                f = (float)Math.Round(f, 0);
-                batteryPercentage = (int)f;
+                f1 = ((totalCharge * 100) / totalCapacity);
+                f1 = (float)Math.Round(f1, 0);
+                batteryPercentage = (int)f1;
             }
             else
                 batteryPercentage = -1;
             return bFoundRecharging;
         }
+
+        void BatterySetNormal()
+        {
+            for (int i = 0; i < batteryList.Count; i++)
+            {
+                IMyBatteryBlock b;
+                b = batteryList[i] as IMyBatteryBlock;
+
+                //V1.189
+                b.ChargeMode = ChargeMode.Auto;
+                /*
+                b.OnlyRecharge = false;
+                b.OnlyDischarge = false;
+                b.SemiautoEnabled = false;
+                */
+            }
+        }
         // Set the state of the batteries and optionally display state of the batteries
         void batteryDischargeSet(bool bEcho = false, bool bDischarge=true)
         {
-            Echo(batteryList.Count + " Batteries");
+            if(bEcho)  Echo(batteryList.Count + " Batteries");
             string s;
             for (int i = 0; i < batteryList.Count; i++)
             {
                 IMyBatteryBlock b;
                 b = batteryList[i] as IMyBatteryBlock;
+
+                // V 1.189
+                if (bDischarge)
+                {
+                    b.ChargeMode = ChargeMode.Discharge;
+                }
+                else b.ChargeMode = ChargeMode.Recharge;
+                /*
                 b.OnlyRecharge = !bDischarge;
                 b.OnlyDischarge = bDischarge;
                 b.SemiautoEnabled = false;
-
+                */
                 s = b.CustomName + ": ";
-                if (b.OnlyRecharge)
+
+
+//                if (b.OnlyRecharge)
+                if (b.ChargeMode==ChargeMode.Recharge)
                 {
                     s += "RECHARGE/";
                 }
                 else s += "NOTRECHARGE/";
-                if (b.OnlyDischarge)
+//                if (b.OnlyDischarge)
+                if (b.ChargeMode == ChargeMode.Discharge)
                 {
                     s += "DISCHARGE";
                 }
@@ -194,7 +249,6 @@ namespace IngameScript
                 if (bEcho) Echo(s);
             }
         }
-        #endregion
 
     }
 }

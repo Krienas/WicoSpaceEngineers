@@ -26,21 +26,41 @@ namespace IngameScript
         List<IMyTerminalBlock> thrustLaunchUpList = new List<IMyTerminalBlock>();
         List<IMyTerminalBlock> thrustLaunchDownList = new List<IMyTerminalBlock>();
 
+        //       string sLaunchSection = "LAUNCH";
+
+        void LaunchInitCustomData(INIHolder iNIHolder)
+        {
+
+        }
+        void LaunchSerialize(INIHolder iNIHolder)
+        {
+        }
+
+        void LaunchDeserialize(INIHolder iNIHolder)
+        {
+        }
+
+
         void doModeLaunch()
         {
+
+            // todo: waypoint sequence for launch (complicated hangars)
+            // todo: test/make work in gravity
             StatusLog("clear", textPanelReport);
             StatusLog(moduleName + ":LAUNCH!", textPanelReport);
+            bWantMedium = true;
             if (current_state == 0)
             {
                 StatusLog(DateTime.Now.ToString() + " ACTION: StartLaunch", textLongStatus, true);
                 StatusLog(moduleName + ":Start Launch", textPanelReport);
-/*
-                Echo("#LocalDock=" + localDockConnectors.Count);
-                for (int i = 0; i < localDockConnectors.Count; i++)
-                {
-                    Echo(i + ":" + localDockConnectors[i].CustomName);
-                }
-                */
+                doSubModuleTimerTriggers("[LAUNCH]");
+                /*
+                                Echo("#LocalDock=" + localDockConnectors.Count);
+                                for (int i = 0; i < localDockConnectors.Count; i++)
+                                {
+                                    Echo(i + ":" + localDockConnectors[i].CustomName);
+                                }
+                                */
                 if (!AnyConnectorIsConnected())
                 {
                     StatusLog("Can't perform action unless docked", textLongStatus, true);
@@ -57,9 +77,13 @@ namespace IngameScript
                         ref thrustLaunchDownList, ref thrustLaunchUpList,
                         ref thrustLaunchLeftList, ref thrustLaunchRightList);
                 }
-                vDock = ((IMyShipController)gpsCenter).CenterOfMass;
-//                vDock = gpsCenter.GetPosition();
+                vDock = ((IMyShipController)shipOrientationBlock).CenterOfMass;
+                TanksStockpile(false);
+                BatterySetNormal();
+                turnEjectorsOff();
+//                vDock = shipOrientationBlock.GetPosition();
                 powerDownThrusters(thrustAllList); // turns ON all thrusters.
+                                                   // TODO: allow for relay ships that are NOT bases..
                 float range = RangeToNearestBase() + 100f + (float)velocityShip * 5f;
                 antennaMaxPower(false,range);
                 current_state = 100;
@@ -79,8 +103,8 @@ namespace IngameScript
                 current_state = 1;
             }
 
-//            Vector3D vPos = gpsCenter.GetPosition();
-            Vector3D vPos = ((IMyShipController)gpsCenter).CenterOfMass;
+//            Vector3D vPos = shipOrientationBlock.GetPosition();
+            Vector3D vPos = ((IMyShipController)shipOrientationBlock).CenterOfMass;
 
             Echo("vDock=" + Vector3DToString(vDock));
             Echo("vPos=" + Vector3DToString(vPos));
@@ -89,24 +113,21 @@ namespace IngameScript
             StatusLog(moduleName + ":Distance Launched=" + dist.ToString("0.00") + "m", textPanelReport);
             Echo(moduleName + ":Distance Launched=" + dist.ToString("0.00") + "m");
 
-            if (dist > 10)
+            if (velocityShip > LaunchMaxVelocity * 0.9)
             {
-                ConnectAnyConnectors(true, true);// "OnOff_On");
+                powerDownThrusters(thrustLaunchForwardList);
+                powerDownThrusters(thrustLaunchBackwardList, thrustAll, true);
             }
-
+            else if (velocityShip > 2)
             {
-
-                if (velocityShip > 2) powerUpThrusters(thrustLaunchBackwardList, 25);
-                else powerUpThrusters(thrustLaunchBackwardList);
+                powerUpThrusters(thrustLaunchBackwardList, 25);
             }
-            if (dist > 45)
+            double stoppingD = calculateStoppingDistance(thrustLaunchBackwardList, velocityShip, 0);
+            if ((dist+stoppingD)> LaunchDistance)
             {
+                ConnectAnyConnectors(true, true);
                 ResetMotion();
-                if (bValidTarget || bValidAsteroid) setMode(MODE_GOINGTARGET);//ActionGoMine();
-                else
-                {
-                    setMode(MODE_INSPACE);
-                }
+                setMode(MODE_LAUNCHED);
             }
         }
         #endregion

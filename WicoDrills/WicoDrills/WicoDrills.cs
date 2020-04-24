@@ -51,6 +51,17 @@ namespace IngameScript
             }
 
         }
+
+        bool HasDrills()
+        {
+            if (drillList.Count < 1)
+                drillInit();
+
+            if (drillList.Count < 1)
+                return false;
+
+            return true;
+        }
         #endregion
         #region ejectors
 
@@ -67,11 +78,13 @@ namespace IngameScript
 
         void turnEjectorsOn()
         {
-            foreach(IMyFunctionalBlock b in ejectorList)
+            if (ejectorList.Count < 1) ejectorsInit();
+
+            foreach (IMyFunctionalBlock b in ejectorList)
             {
-                b.Enabled = true;
+                if(!b.Enabled)
+                    b.Enabled = true;
             }
-//                            blockApplyAction(ejectorList, "OnOff_On");
 
         }
 
@@ -81,7 +94,8 @@ namespace IngameScript
 
             foreach(IMyFunctionalBlock b in ejectorList)
             {
-                b.Enabled = false;
+                if(b.Enabled)
+                    b.Enabled = false;
             }
 
         }

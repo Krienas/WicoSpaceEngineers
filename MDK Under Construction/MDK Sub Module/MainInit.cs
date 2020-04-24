@@ -23,13 +23,17 @@ namespace IngameScript
             // called from main constructor.
 
         }
+        void ModuleInitCustomData(INIHolder iniCustomData)
+        {
+            ConnectorInitCustomData(iniCustomData);
+            ThrustersInitCustomData(iniCustomData);
+            GyroInitCustomData(iniCustomData);
+ //           CamerasInitCustomData(iniCustomData);
+            //            GearsInitCustomData(iniCustomData);
+        }
+
 
         #region maininit
-
-        string sInitResults = "";
-        string sArgResults = "";
-
-        int currentInit = 0;
 
         string doInit()
         {
@@ -44,7 +48,7 @@ namespace IngameScript
             string sProgress = progressBar(progress);
             StatusLog(moduleName + sProgress, textPanelReport);
 
-            Echo("Init");
+            Echo("Init:" + currentInit);
             if (currentInit == 0)
             {
                 //StatusLog("clear",textLongStatus,true);
@@ -55,20 +59,20 @@ namespace IngameScript
                 // if(!modeCommands.ContainsKey("orbitaldescent")) modeCommands.Add("orbitaldescent", MODE_DESCENT);
                 gridsInit();
                 //               initLogging();
-                sInitResults += initSerializeCommon();
+                sInitResults += SerializeInit();
                 Deserialize();
             }
             else if (currentInit == 1)
             {
-                sInitResults += BlockInit();
-                anchorPosition = gpsCenter;
-                currentPosition = anchorPosition.GetPosition();
+                sInitResults += DefaultOrientationBlockInit();
 
-                sInitResults += thrustersInit(gpsCenter);
+                sInitResults += thrustersInit(shipOrientationBlock);
                 sInitResults += connectorsInit();
                 sInitResults += gyrosetup();
                 sInitResults += lightsInit();
-                initShipDim();
+                initShipDim(shipOrientationBlock);
+                sInitResults+=camerasensorsInit(shipOrientationBlock);
+                initProjectors();
 
                 Deserialize();
                 //                bWantFast = false;
@@ -84,69 +88,12 @@ namespace IngameScript
             }
 
             Log(sInitResults);
-
             return sInitResults;
 
         }
 
-        IMyTextPanel gpsPanel = null;
+ //       IMyTextPanel gpsPanel = null;
 
-        string BlockInit()
-        {
-            string sInitResults = "";
-
-            List<IMyTerminalBlock> centerSearch = new List<IMyTerminalBlock>();
-            GridTerminalSystem.SearchBlocksOfName(sGPSCenter, centerSearch, (x1 => x1.CubeGrid == Me.CubeGrid));
-            if (centerSearch.Count == 0)
-            {
-                centerSearch = GetBlocksContains<IMyRemoteControl>("[NAV]");
-                if (centerSearch.Count == 0)
-                {
-                    GridTerminalSystem.GetBlocksOfType<IMyRemoteControl>(centerSearch, (x1 => x1.CubeGrid == Me.CubeGrid));
-                    if (centerSearch.Count == 0)
-                    {
-                        GridTerminalSystem.GetBlocksOfType<IMyCockpit>(centerSearch, localGridFilter);
-                        //                GridTerminalSystem.GetBlocksOfType<IMyShipController>(centerSearch, localGridFilter);
-                        int i = 0;
-                        for (; i < centerSearch.Count; i++)
-                        {
-                            Echo("Checking Controller:" + centerSearch[i].CustomName);
-                            if (centerSearch[i] is IMyCryoChamber)
-                                continue;
-                            break;
-                        }
-                        if (i > centerSearch.Count)
-                        {
-                            sInitResults += "!!NO valid Controller";
-                            Echo("No Controller found");
-                        }
-                        else
-                        {
-                            sInitResults += "S";
-                            Echo("Using good ship Controller: " + centerSearch[i].CustomName);
-                        }
-                    }
-                    else
-                    {
-                        sInitResults += "R";
-                        Echo("Using First Remote control found: " + centerSearch[0].CustomName);
-                    }
-                }
-            }
-            else
-            {
-                sInitResults += "N";
-                Echo("Using Named: " + centerSearch[0].CustomName);
-            }
-            gpsCenter = centerSearch[0];
-
-            List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
-            blocks = GetBlocksContains<IMyTextPanel>("[GPS]");
-            if (blocks.Count > 0)
-                gpsPanel = blocks[0] as IMyTextPanel;
-
-            return sInitResults;
-        }
 
         #endregion
 

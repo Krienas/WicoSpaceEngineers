@@ -9,6 +9,12 @@
  * 
  * 3.1 Updates for SE V1.185
  * 
+ * 3.2 INI Save
+ * 
+ * 3.4
+ * 
+ * 3.4A Current Source Apr 22 2018
+ * 
  * NEED:  
  *  
  * WANTED: 

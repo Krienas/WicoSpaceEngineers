@@ -18,6 +18,7 @@ namespace IngameScript
 {
     partial class Program : MyGridProgram
     {
+        //01032018 Add strings for [base] and [dock]
 
         //03/30 Fix connectany to use localdock
         //03/27 cache optimizations
@@ -33,6 +34,17 @@ namespace IngameScript
 
         bool bConnectorsInit = false;
 
+        string sBaseConnector = "[BASE]";
+        string sDockConnector = "[DOCK]";
+
+        string sConnectorSection = "CONNECTORS";
+
+        void ConnectorInitCustomData(INIHolder iNIHolder)
+        {
+            iNIHolder.GetValue(sConnectorSection, "BaseConnector", ref sBaseConnector, true);
+            iNIHolder.GetValue(sConnectorSection, "DockConnector", ref sDockConnector, true);
+        }
+
         string connectorsInit()
         {
             bConnectorsInit = false;
@@ -47,11 +59,16 @@ namespace IngameScript
         {
             if (localConnectors.Count < 1 && !bConnectorsInit) localConnectors = GetTargetBlocks<IMyShipConnector>();
 
-            if (localDockConnectors.Count < 1 && !bConnectorsInit) localDockConnectors = GetBlocksContains<IMyShipConnector>("[DOCK]");
+            if (localDockConnectors.Count < 1 && !bConnectorsInit) localDockConnectors = GetBlocksContains<IMyShipConnector>(sDockConnector);
             if (localDockConnectors.Count < 1 && !bConnectorsInit) localDockConnectors = localConnectors;
-            if (localBaseConnectors.Count < 1 && !bConnectorsInit) localBaseConnectors = GetBlocksContains<IMyShipConnector>("[BASE]");
+            if (localBaseConnectors.Count < 1 && !bConnectorsInit) localBaseConnectors = GetBlocksContains<IMyShipConnector>(sBaseConnector);
             bConnectorsInit = true;
             return;
+        }
+
+        bool ConnectorsLocalExist()
+        {
+            return localDockConnectors.Count > 1;
         }
         bool AnyConnectorIsLocked()
         {
@@ -59,8 +76,9 @@ namespace IngameScript
 
             for (int i = 0; i < localDockConnectors.Count; i++)
             {
-                IMyShipConnector sc = localDockConnectors[i] as IMyShipConnector;
-                if (sc.Status == MyShipConnectorStatus.Connectable)
+                var sc1 = localDockConnectors[i] as IMyShipConnector;
+                if (sc1 == null) continue;
+                if (sc1.Status == MyShipConnectorStatus.Connectable)
                     //		if (sc.IsLocked)
                     return true;
             }
@@ -70,14 +88,14 @@ namespace IngameScript
         bool AnyConnectorIsConnected()
         {
             getLocalConnectors();
-
             for (int i = 0; i < localDockConnectors.Count; i++)
             {
-                IMyShipConnector sc = localDockConnectors[i] as IMyShipConnector;
-                if (sc.Status == MyShipConnectorStatus.Connected)
+                var sc1 = localDockConnectors[i] as IMyShipConnector;
+                if (sc1 == null) continue;
+                if (sc1.Status == MyShipConnectorStatus.Connected)
                 {
-                    IMyShipConnector sco = sc.OtherConnector;
-                    if (sco.CubeGrid == sc.CubeGrid)
+                    var sco = sc1.OtherConnector;
+                    if (sco.CubeGrid == sc1.CubeGrid)
                     {
                         //Echo("Locked-but connected to 'us'");
                         continue;
@@ -86,6 +104,27 @@ namespace IngameScript
                 }
             }
             return false;
+        }
+
+        /*
+        /// <summary>
+        /// Connector on a drone for docking to a base
+        /// </summary>
+        public class DockingConnectorInfo 
+        {
+            public IMyTerminalBlock tb;
+            public List<IMyTerminalBlock> subBlocks;
+        }
+        */
+        void DockingConnectorsInit()
+        {
+            for(int i=0; i<localDockConnectors.Count; i++)
+            {
+                var sc1 = localDockConnectors[i] as IMyShipConnector;
+                if (sc1 == null) continue;
+
+            }
+
         }
 
         IMyTerminalBlock getDockingConnector() // maybe pass in prefered orientation?
@@ -103,16 +142,16 @@ namespace IngameScript
 
         IMyTerminalBlock getConnectedConnector(bool bMe = false)
         {
-
             getLocalConnectors();
 
             for (int i = 0; i < localDockConnectors.Count; i++)
             {
-                IMyShipConnector sc = localDockConnectors[i] as IMyShipConnector;
-                if (sc.Status == MyShipConnectorStatus.Connected)
+                var sc1 = localDockConnectors[i] as IMyShipConnector;
+                if (sc1 == null) continue;
+                if (sc1.Status == MyShipConnectorStatus.Connected)
                 {
-                    IMyShipConnector sco = sc.OtherConnector;
-                    if (sco.CubeGrid == sc.CubeGrid)
+                    var sco = sc1.OtherConnector;
+                    if (sco.CubeGrid == sc1.CubeGrid)
                     {
                         continue;
                     }
@@ -120,7 +159,7 @@ namespace IngameScript
                     {
                         if (!bMe)
                         {
-                            return sc.OtherConnector;
+                            return sc1.OtherConnector;
                         }
                         else
                         {
@@ -131,33 +170,37 @@ namespace IngameScript
             }
             return null;
         }
-        //        void ConnectAnyConnectors(bool bConnect = true, string sAction = "")
+
         void ConnectAnyConnectors(bool bConnect = true, bool bOn = true)
+        {
+            getLocalConnectors();
+            //	Echo("CCA:"+ localDockConnectors.Count);
+            for (int i = 0; i < localDockConnectors.Count; i++)
             {
-//            string sAction = "";
-                getLocalConnectors();
-                //	Echo("CCA:"+ localDockConnectors.Count);
-                for (int i = 0; i < localDockConnectors.Count; i++)
+                var sc1 = localDockConnectors[i] as IMyShipConnector;
+                if (sc1 == null) continue;
+                if (sc1.Status == MyShipConnectorStatus.Connected)
                 {
-                    IMyShipConnector sc = localDockConnectors[i] as IMyShipConnector;
-                    if (sc.Status == MyShipConnectorStatus.Connected)
+                    var sco = sc1.OtherConnector;
+                    if (sco.CubeGrid == sc1.CubeGrid)
                     {
-                        IMyShipConnector sco = sc.OtherConnector;
-                        if (sco.CubeGrid == sc.CubeGrid)
-                        {
-                            //Echo("Locked-but connected to 'us'");
-                            continue; // skip it.
-                        }
+                        //Echo("Locked-but connected to 'us'");
+                        continue; // skip it.
                     }
-                    if (bConnect)
-                    {
-                        if (sc.Status == MyShipConnectorStatus.Connectable) sc.ApplyAction("SwitchLock");
-                    }
-                    else
-                    {
-                        if (sc.Status == MyShipConnectorStatus.Connected) sc.ApplyAction("SwitchLock");
-                    }
-                sc.Enabled = bOn;
+                }
+                if (bConnect)
+                {
+                    if (sc1.Status == MyShipConnectorStatus.Connectable)
+                        //sc1.ApplyAction("SwitchLock");
+                        sc1.Connect();
+                }
+                else
+                {
+                    if (sc1.Status == MyShipConnectorStatus.Connected)
+                        //sc1.ApplyAction("SwitchLock");
+                        sc1.Disconnect();
+                }
+                sc1.Enabled = bOn;
                 /*
                     if (sAction != "")
                     {
@@ -166,13 +209,13 @@ namespace IngameScript
                         if (ita != null) ita.Apply(sc);
                     }
                     */
-                }
-                return;
             }
-
-            #endregion
-
-
-
+            return;
         }
+
+        #endregion
+
+
+
     }
+}

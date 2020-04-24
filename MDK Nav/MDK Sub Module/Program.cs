@@ -18,37 +18,94 @@ namespace IngameScript
 {
     partial class Program : MyGridProgram
     {
-        string OurName = "Wico Craft";
 
-        string moduleName = "NAV";
-        string sVersion = "3.2A";
-
-        const string sGPSCenter = "Craft Remote Control";
-
-        Vector3I iForward = new Vector3I(0, 0, 0);
-        Vector3I iUp = new Vector3I(0, 0, 0);
-        Vector3I iLeft = new Vector3I(0, 0, 0);
- //       Vector3D currentPosition;
         const string velocityFormat = "0.00";
 
- //       IMyTerminalBlock anchorPosition;
-        IMyTerminalBlock gpsCenter = null;
-//        Vector3D vCurrentPos;
-        //IMyTerminalBlock gpsCenter = null;
-        class OurException : Exception
+        void ModuleDeserialize(INIHolder iNIHolder)
         {
-            public OurException(string msg) : base("WicoNav" + ": " + msg) { }
+            NavDeserialize(iNIHolder);
         }
 
+        void ModuleSerialize(INIHolder iNIHolder)
+        {
+            NavSerialize(iNIHolder);
+        }
 
         void moduleDoPreModes()
         {
+            // check for IGC Listeners
+            do
+            {
+                if(_StartNavListener.HasPendingMessage)
+                {
+                    var msg = _StartNavListener.AcceptMessage();
+                    var src = msg.Source;
+                    Vector3D vTarget;
+                    int modeArrival;
+                    int stateArrival;
+                    double DistanceMin;
+                    string TargetName;
+                    double maxSpeed;
+                    bool bGo;
+                    NAVDeserializeCommand(msg.Data.ToString(), out vTarget, out modeArrival, out stateArrival, out DistanceMin, out TargetName, out maxSpeed, out bGo);
+                    _NavGoTarget(vTarget, modeArrival, stateArrival, DistanceMin, TargetName, maxSpeed, bGo);
+
+                }
+            } while (_StartNavListener.HasPendingMessage); // Process all pending messages
+            do
+            {
+                if (_AddNavListener.HasPendingMessage)
+                {
+                    var msg = _StartNavListener.AcceptMessage();
+                    // information about the received message
+                    Vector3D vTarget;
+                    int modeArrival;
+                    int stateArrival;
+                    double DistanceMin;
+                    string TargetName;
+                    double maxSpeed;
+                    bool bGo;
+                    NAVDeserializeCommand(msg.Data.ToString(), out vTarget, out modeArrival, out stateArrival, out DistanceMin, out TargetName, out maxSpeed, out bGo);
+                    _NavAddTarget(vTarget, modeArrival, stateArrival, DistanceMin, TargetName, maxSpeed, bGo);
+                }
+            } while (_AddNavListener.HasPendingMessage); // Process all pending messages
+            do
+            {
+                if (_ResetNavListener.HasPendingMessage)
+                {
+                    var msg = _ResetNavListener.AcceptMessage();
+                    // information about the received message
+                    Echo("ResetNav Received Message");
+//                  _NavReset();
+                }
+            } while (_ResetNavListener.HasPendingMessage); // Process all pending messages
+            do
+            {
+                if (_LaunchNavListener.HasPendingMessage)
+                {
+                    var msg = _ResetNavListener.AcceptMessage();
+                    // information about the received message
+                    Echo("_NavQueueLaunch Received Message");
+                    _NavQueueLaunch();
+                }
+            } while (_LaunchNavListener.HasPendingMessage); // Process all pending messages
+            do
+            {
+                if (_OrbitalNavListener.HasPendingMessage)
+                {
+                    var msg = _ResetNavListener.AcceptMessage();
+                    // information about the received message
+                    Echo("_NavQueueOrbitalLaunch Received Message");
+                    _NavQueueOrbitalLaunch();
+                }
+            } while (_OrbitalNavListener.HasPendingMessage); // Process all pending messages
         }
 
         void modulePostProcessing()
         {
             Echo(sInitResults);
             echoInstructions();
+            Echo(craftOperation());
         }
 
         void ResetMotion(bool bNoDrills = false)  
@@ -57,10 +114,12 @@ namespace IngameScript
             gyrosOff();
             powerDownRotors(rotorNavLeftList);
             powerDownRotors(rotorNavRightList);
+            WheelsPowerUp(0,75);
 
-	        if (gpsCenter is IMyRemoteControl) ((IMyRemoteControl)gpsCenter).SetAutoPilotEnabled(false);
-	        if (gpsCenter is IMyShipController) ((IMyShipController)gpsCenter).DampenersOverride = true;
-        } 
+	        if (shipOrientationBlock is IMyRemoteControl) ((IMyRemoteControl)shipOrientationBlock).SetAutoPilotEnabled(false);
+            if (shipOrientationBlock is IMyShipController) ((IMyShipController)shipOrientationBlock).DampenersOverride = true;
+//            if (shipOrientationBlock is IMyShipController) ((IMyShipController)shipOrientationBlock).HandBrake = true;
+        }
 
     }
 }

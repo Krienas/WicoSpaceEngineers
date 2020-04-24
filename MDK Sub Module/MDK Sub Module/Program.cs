@@ -20,25 +20,9 @@ namespace IngameScript
     {
         string OurName = "Wico Craft";
         string moduleName = "SubModuleName";
-        string sVersion = "3.1";
+        string sVersion = "3.4A";
 
-        const string sGPSCenter = "Craft Remote Control";
-
-        Vector3I iForward = new Vector3I(0, 0, 0);
-        Vector3I iUp = new Vector3I(0, 0, 0);
-        Vector3I iLeft = new Vector3I(0, 0, 0);
-        Vector3D currentPosition;
         const string velocityFormat = "0.00";
-
-        IMyTerminalBlock anchorPosition;
-        IMyTerminalBlock gpsCenter = null;
-//        Vector3D vCurrentPos;
-        //IMyTerminalBlock gpsCenter = null;
-        class OurException : Exception
-        {
-            public OurException(string msg) : base("WicoExampleModule" + ": " + msg) { }
-        }
-
 
         void moduleDoPreModes()
         {
@@ -51,12 +35,20 @@ namespace IngameScript
         }
 
         void ResetMotion(bool bNoDrills = false)  
-        { 
-        //	if (navEnable != null)	blockApplyAction(navEnable,"OnOff_Off"); //navEnable.ApplyAction("OnOff_Off"); 
-//	        powerDownThrusters(thrustAllList);
-//            gyrosOff();
-	        blockApplyAction(gpsCenter, "AutoPilot_Off"); 
-        } 
+        {
+ //           powerDownThrusters(thrustAllList);
+ //           gyrosOff();
+ //           powerDownRotors(rotorNavLeftList);
+ //           powerDownRotors(rotorNavRightList);
+            if (shipOrientationBlock is IMyRemoteControl) ((IMyRemoteControl)shipOrientationBlock).SetAutoPilotEnabled(false);
+            if (shipOrientationBlock is IMyShipController) ((IMyShipController)shipOrientationBlock).DampenersOverride = true;
+        }
+        void ModuleSerialize(INIHolder iNIHolder)
+        {
+        }
+        void ModuleDeserialize(INIHolder iNIHolder)
+        {
+        }
 
     }
 }

@@ -25,6 +25,7 @@
     <LangVersion>6</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="netstandard, Version=2.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51" />
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
@@ -90,10 +91,9 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="MDKUtilities">
-      <HintPath>C:\Users\saett\AppData\Local\Microsoft\VisualStudio\15.0_ce59efb3\Extensions\2jgibfoa.tni\MDKUtilities.dll</HintPath>
+      <HintPath>c:\users\saett\appdata\local\microsoft\visualstudio\15.0_ce59efb3\extensions\vz0o0whu.ese\MDKUtilities.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Analyzer Include="C:\Users\saett\AppData\Local\Microsoft\VisualStudio\15.0_ce59efb3\Extensions\2jgibfoa.tni\Analyzers\MDKAnalyzer.dll" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="DoModes.cs" />
@@ -107,6 +107,7 @@
     <Compile Include="Readme.cs" />
     <AdditionalFiles Include="thumb.png" />
     <AdditionalFiles Include="MDK\whitelist.cache" />
+    <Compile Include="Version.cs" />
   </ItemGroup>
   <Import Project="..\..\WicoGrid\WicoGrid\WicoGrid.projitems" Label="Shared" />
   <Import Project="..\..\WicoSubModuleMain\WicoSubModuleMain\WicoSubModuleMain.projitems" Label="Shared" />
@@ -126,6 +127,10 @@
   <Import Project="..\..\WicoLights\WicoLights\WicoLights.projitems" Label="Shared" />
   <Import Project="..\..\WicoNavRotors\WicoNavRotors\WicoNavRotors.projitems" Label="Shared" />
   <Import Project="..\..\WicoAntenna\WicoAntenna\WicoAntenna.projitems" Label="Shared" />
+  <Import Project="..\..\WicoINI\WicoINI\WicoINI.projitems" Label="Shared" />
+  <Import Project="..\..\WicoLogging\WicoLogging\WicoLogging.projitems" Label="Shared" />
+  <Import Project="..\..\WicoNavCommon\WicoNavCommon\WicoNavCommon.projitems" Label="Shared" />
+  <Import Project="..\..\WicoOrientedBB\WicoOrientedBB\WicoOrientedBB.projitems" Label="Shared" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="AfterBuild">
     <Copy SourceFiles="mdk\mdk.options" DestinationFolder="$(TargetDir)\mdk" />

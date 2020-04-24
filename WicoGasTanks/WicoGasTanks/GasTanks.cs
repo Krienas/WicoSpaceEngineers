@@ -30,6 +30,22 @@ namespace IngameScript
         const int iTankHydro = 2;
         int iHydroTanks = 0;
         int iOxygenTanks = 0;
+
+        double hydroPercent = -1;
+        double oxyPercent = -1;
+
+        void TanksCalculate()
+        {
+            hydroPercent = tanksFill(iTankHydro);
+            oxyPercent = tanksFill(iTankOxygen);
+
+        }
+
+        bool TanksHasHydro()
+        {
+            return hydrotankList.Count > 0;
+        }
+
         string tanksInit()
         {
             {
@@ -69,7 +85,7 @@ namespace IngameScript
                 {
                     IMyGasTank tank = tankList[i] as IMyGasTank;
                     if (tank == null) continue; // not a tank
-                    float tankLevel = tank.FilledRatio;
+                    float tankLevel = (float)tank.FilledRatio;
                     totalPercent += tankLevel;
                     iTanksCount++;
                 }
@@ -94,7 +110,7 @@ namespace IngameScript
                 {
                     IMyGasTank tank = tankList[i] as IMyGasTank;
                     if (tank == null) continue; // not a tank
-                    float tankLevel = tank.FilledRatio;
+                    float tankLevel = (float)tank.FilledRatio;
                     totalLevel += tankLevel;
                     iTanksCount++;
                 }

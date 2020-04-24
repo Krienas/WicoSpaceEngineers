@@ -18,99 +18,131 @@ namespace IngameScript
 {
     partial class Program : MyGridProgram
     {
-        bool bVerboseSerialize=false;
+//        bool bVerboseSerialize=false;
 
+        // 01212018 Remove most info
+        // 122317 INI processing
         // 1105 allow save file to use contains()
         // V3.0 - redo all variables & cleanup
-        #region serializecommon
-        const string SAVE_FILE_NAME = "Wico Craft Save";
-        float savefileversion = 3.00f;
+
+        string SAVE_FILE_NAME = "Wico Craft Save";
+
+        string sSerializeSection = "WCCM2";
+        void SerializeInitCustomData(INIHolder iNIHolder)
+        {
+            iNIHolder.GetValue(sSerializeSection, "SAVE_FILE_NAME", ref SAVE_FILE_NAME, true);
+        }
+
+//        float savefileversion = 3.00f;
         IMyTextPanel SaveFile = null;
 
+        INIHolder iniWicoCraftSave=null;
+
         // Saved info:
+        /// <summary>
+        /// Serliazed across modules:
+        /// </summary>
         int current_state = 0;
 
+        /// <summary>
+        /// Serliazed across modules:
+        /// </summary>
         long allBlocksCount = 0;
 
-        Vector3D vCurrentPos;
-        Vector3D vDock;
-        Vector3D vLaunch1;
-        Vector3D vHome;
-        bool bValidDock = false;
-        bool bValidLaunch1 = false;
-        bool bValidHome = false;
-        double dGravity = -2;
+        //        Vector3D vCurrentPos;
+        //        Vector3D vDock;
+        //        Vector3D vLaunch1;
+        //        Vector3D vHome;
+        //        bool bValidDock = false;
+        //        bool bValidLaunch1 = false;
+        //        bool bValidHome = false;
+        //        double dGravity = -2;
+        /// <summary>
+        /// Serliazed across modules:
+        /// </summary>
         int craft_operation = CRAFT_MODE_AUTO;
-        int currentRun = 0;
+        //        int currentRun = 0;
+        /// <summary>
+        /// Serliazed across modules:
+        /// </summary>
         string sPassedArgument = "";
 
         // valid vectors
-        bool bValidInitialContact = false;
-        bool bValidInitialExit = false;
-        bool bValidTarget = false;
-        bool bValidAsteroid = false;
-        bool bValidNextTarget = false;
+        //        bool bValidInitialContact = false;
+        //        bool bValidInitialExit = false;
+        //        bool bValidTarget = false;
+        //        bool bValidAsteroid = false;
+        //        bool bValidNextTarget = false;
 
         // operation flags
-        bool bAutopilotSet = true;
-        bool bAutoRelaunch = false;
+        //        bool bAutopilotSet = true;
+        //        bool bAutoRelaunch = false;
 
-        // 
+        /// <summary>
+        /// Serliazed across modules:
+        /// </summary>
         int iAlertStates = 0;
 
         // time outs
-        DateTime dtStartShip;
-        DateTime dtStartCargo;
-        DateTime dtStartSearch;
-        DateTime dtStartMining;
-        DateTime dtLastRan;
-        DateTime dtStartNav;
+//        DateTime dtStartShip;
+//        DateTime dtStartCargo;
+//        DateTime dtStartSearch;
+//        DateTime dtStartMining;
+//        DateTime dtLastRan;
+//        DateTime dtStartNav;
 
         // positions
         //Vector3D vLastPos;
-        Vector3D vInitialContact;
-        Vector3D vInitialExit;
-        Vector3D vLastContact;
-        Vector3D vLastExit;
-        Vector3D vTargetMine;
-        Vector3D vTargetAsteroid;
-        Vector3D vCurrentNavTarget;
-        Vector3D vNextTarget;
-        Vector3D vExpectedExit;
+//        Vector3D vInitialContact;
+//        Vector3D vInitialExit;
+//        Vector3D vLastContact;
+//        Vector3D vLastExit;
+//        Vector3D vTargetMine;
+//        Vector3D vTargetAsteroid;
+//        Vector3D vCurrentNavTarget;
+//        Vector3D vNextTarget;
+//        Vector3D vExpectedExit;
 
         // detection
-        int iDetects = 0;
-        int batterypcthigh = 80;
-        int batterypctlow = 20;
-        int batteryPercentage = -1;
+//        int iDetects = 0;
+//        int batterypcthigh = 80;
+//        int batterypctlow = 20;
+//        int batteryPercentage = -1;
 
-        int cargopctmin = 5;
-        int cargopcent = -1;
-        double cargoMult = -1;
+//        int cargopctmin = 5;
+//        int cargopcent = -1;
+//        double cargoMult = -1;
 
         // tanks
-        double hydroPercent = -1;
-        double oxyPercent = -1;
+//        double hydroPercent = -1;
+//        double oxyPercent = -1;
 
-        double totalMaxPowerOutput = 0;
-        double maxReactorPower = -1;
-        double maxSolarPower = -1;
-        double maxBatteryPower = -1;
+//        double totalMaxPowerOutput = 0;
+//        double maxReactorPower = -1;
+//        double maxSolarPower = -1;
+//        double maxBatteryPower = -1;
 
-        string sReceivedMessage = "";
+            /// <summary>
+            /// Serliazed across modules: Currently received message.  "" for none.
+            /// </summary>
+// No longer needed with IGC        string sReceivedMessage = "";
 
-        string initSerializeCommon()
+        string SerializeInit()
         {
-
             string sInitResults = "S";
 
             SaveFile = null;
             List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
             blocks = GetBlocksNamed<IMyTextPanel>(SAVE_FILE_NAME);
 
-            if (blocks.Count > 1) Echo("Multiple blocks found: \"" + SAVE_FILE_NAME + "\"");
+            if (blocks.Count > 1)
+            {
+//                Echo("Multiple blocks found: \"" + SAVE_FILE_NAME + "\"");
+                bStartupError = true;
+                sStartupError+= "\nMultiple blocks found:\"" + SAVE_FILE_NAME + "\"";
+            }
             else if (blocks.Count == 0)
-            { 
+            {
                 blocks = GetBlocksContains<IMyTextPanel>(SAVE_FILE_NAME);
                 if (blocks.Count == 1)
                     SaveFile = blocks[0] as IMyTextPanel;
@@ -122,16 +154,17 @@ namespace IngameScript
                 }
             }
             else SaveFile = blocks[0] as IMyTextPanel;
+            iniWicoCraftSave = new INIHolder(this, "");
 
             if (SaveFile == null)
             {
                 sInitResults = "-";
-                Echo(SAVE_FILE_NAME + " (TextPanel) is missing or Named incorrectly. ");
+//                Echo(SAVE_FILE_NAME + " (TextPanel) is missing or Named incorrectly. ");
             }
             return sInitResults;
         }
 
-        bool validSavefile()
+        bool SavefileIsValid()
         {
             return SaveFile != null;
         }
@@ -164,10 +197,9 @@ namespace IngameScript
             return true;
         }
 
-        #endregion
 
         // state variables
-        string sLastLoad = "";
+ //       string sLastLoad = "";
 
     }
 }

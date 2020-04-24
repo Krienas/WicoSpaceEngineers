@@ -31,16 +31,6 @@ namespace IngameScript
                 Echo("got antenna Name");
             Echo("AList="+antennaList.Count);
             */
-    		IMyShipController isc = GetActiveController();
-            if(isc==null)
-            {
-                Runtime.UpdateFrequency &= ~UpdateFrequency.Update10;
-            }
-            else
-            {
-                Runtime.UpdateFrequency |= UpdateFrequency.Update10;
-            }
-
             doModeAlways();
             if (iMode == MODE_IDLE)
                 doModeIdle();
@@ -53,6 +43,19 @@ namespace IngameScript
                 StatusLog("\nCraft Needs attention", textPanelReport);
 
             }
+ //           if (iMode == MODE_GOINGTARGET) { doModeGoTarget(); }
+
+            IMyShipController isc = GetActiveController();
+            if (isc == null)
+            {
+                //                if(!bWantMedium)  Runtime.UpdateFrequency &= ~UpdateFrequency.Update10;
+            }
+            else
+            {
+                bWantMedium = true;
+                //                Runtime.UpdateFrequency |= UpdateFrequency.Update10;
+            }
+
         }
 
         void ResetToIdle()
@@ -77,35 +80,27 @@ namespace IngameScript
         }
 
 
-        double calculateStoppingDistance(List<IMyTerminalBlock> thrustUpList, double currentV, double dGrav)
-        {
-            MyShipMass myMass;
-            myMass = ((IMyShipController)gpsCenter).CalculateShipMass();
-            double hoverthrust = 0;
-            hoverthrust = myMass.PhysicalMass * dGrav * 9.810;
-            double maxThrust = calculateMaxThrust(thrustUpList);
-            double maxDeltaV = (maxThrust - hoverthrust) / myMass.TotalMass;
-            double secondstozero = currentV / maxDeltaV;
-            Echo("secondstozero=" + secondstozero.ToString("0.00"));
-            double stoppingM = currentV / 2 * secondstozero;
-            Echo("stoppingM=" + stoppingM.ToString("0.00"));
-            return stoppingM;
-        }
+
+        bool bDoForwardScans = true;
+        bool bCheckGasGens = true;
+        bool bTechnikerCalcs = true;
+        bool bGPSFromEntities = true;
+        bool bAirVents = true;
+
 
         void doModeAlways()
         {
-        //	bool bConnected = AnyConnectorIsConnected();
+            //	bool bConnected = AnyConnectorIsConnected();
 
-	        doForwardScans();
-	        doCheckGasGensNeeded();
+            if(bDoForwardScans) doForwardScans();
+	        if(bCheckGasGens) doCheckGasGensNeeded();
 
-	        doTechnikerCalcsandDisplay();
+	        if(bTechnikerCalcs) doTechnikerCalcsandDisplay();
 
-	        doOutputGPSFromEntities();
-	        if(bWasInit) // only do once on start
+	        if(bGPSFromEntities) doOutputGPSFromEntities();
+	        if(bAirVents && bWasInit) // only do once on start
 		        doCheckAirVents();
 
-//	        if(Me.CustomName.Contains("MASTER")) doBroadcastPosition();
         }
 
     }

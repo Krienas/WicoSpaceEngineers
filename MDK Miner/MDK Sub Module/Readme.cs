@@ -2,24 +2,19 @@
  * 
  *  * Handles MODES:
  * MODE_MINE
+ * MODE_FINEORE
+ * MODE_SEARCHORIENT
+ * MODE_SEARCHSHIFT
  * 
  * Commands:
  * 
- * 3.0a MDK Version https://github.com/malware-dev/MDK-SE/wiki
+ * findore : starts searching for asteroid, then chooses one, then searches for ore
+ * doscan: starts a scan for nearby asteroids
+ * mine: start mining the location in front of ship
  * 
- * 3.1 First version for new PB changes in SE 1.185
+ * WorkShop: http://steamcommunity.com/sharedfiles/filedetails/?id=883866371
+ * Source: https://github.com/Wicorel/WicoSpaceEngineers/tree/master/MDK%20Miner
+ * MDK: https://github.com/malware-dev/MDK-SE/wiki
  * 
- * 3.1A Turn Horizontally in tunnel when trying to exit asteroid
- * 
- * SearchShift/Orient WIP
- * 
- * 3.1B
- * Quadrant scans for asteroid if not in scanner range
- * use DoTravelMovemnent without collision detection if long-range to target asteroid
- * 
- * 
- * NEED:  
- *  
- * WANTED: 
- *  
-*/ 
+ */
+

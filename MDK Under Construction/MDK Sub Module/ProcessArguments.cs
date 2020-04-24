@@ -25,7 +25,7 @@ namespace IngameScript
 
         bool moduleProcessArguments(string sArgument)
         {
-            sArgResults = "";
+//            sArgResults = "";
             // string output="";
             if (sArgument == "" || sArgument == "timer" || sArgument == "wccs" || sArgument == "wcct")
             {
@@ -61,18 +61,90 @@ namespace IngameScript
             {
 
             }
+            else if (args[0] == "namecameras")
+            {
+                nameCameras(cameraForwardList, "Front");
+                nameCameras(cameraBackwardList, "Back");
+                nameCameras(cameraDownList, "Down");
+                nameCameras(cameraUpList, "Up");
+                nameCameras(cameraLeftList, "Left");
+                nameCameras(cameraRightList, "Right");
+            }
+            // increase horz
+            // decrease horz
+            // increase vert
+            // decrease vert
+            // increase forward
+            // decrease forward
+            // increase pitch
+            // decrease pitch
+            // increase yaw
+            // decrease yaw
+            // increase roll
+            // decrease roll
+            else if (args[0] == "+horz")
+            {
+                ProjectorsHorz();
+            }
+            else if (args[0] == "-horz")
+            {
+                ProjectorsHorz(false);
+            }
+            else if (args[0] == "+vert")
+            {
+                ProjectorsVert();
+            }
+            else if (args[0] == "-vert")
+            {
+                ProjectorsVert(false);
+            }
+            else if (args[0] == "+fw")
+            {
+                ProjectorsFw();
+            }
+            else if (args[0] == "-fw")
+            {
+                ProjectorsFw(false);
+            }
+
+
+            else if (args[0] == "+pitch")
+            {
+                ProjectorsPitch();
+            }
+            else if (args[0] == "-pitch")
+            {
+                ProjectorsPitch(false);
+            }
+            else if (args[0] == "+yaw")
+            {
+                ProjectorsYaw();
+            }
+            else if (args[0] == "-yaw")
+            {
+                ProjectorsYaw(false);
+            }
+            else if (args[0] == "+roll")
+            {
+                ProjectorsRoll();
+            }
+            else if (args[0] == "-roll")
+            {
+                ProjectorsRoll(false);
+            }
+
             else
             {
                 int iDMode;
                 if (modeCommands.TryGetValue(args[0].ToLower(), out iDMode))
                 {
-                    sArgResults = "mode set to " + iDMode;
+//                    sArgResults = "mode set to " + iDMode;
                     setMode(iDMode);
                     // return true;
                 }
                 else
                 {
-                    sArgResults = "Unknown argument:" + args[0];
+//                    sArgResults = "Unknown argument:" + args[0];
                 }
             }
             return false; // keep processing in main
@@ -81,6 +153,11 @@ namespace IngameScript
         bool moduleProcessAntennaMessage(string sArgument)
         {
             // we directly received an antenna message
+            return false;
+        }
+
+        bool moduleProcessIGCMessage(string sArgument)
+        {
             return false;
         }
 

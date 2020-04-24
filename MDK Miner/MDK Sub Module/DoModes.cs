@@ -21,19 +21,14 @@ namespace IngameScript
         #region domodes 
         void doModes()
         {
-            Echo("mode=" + iMode.ToString());
+            Echo("mode=" + iMode.ToString() + " state="+current_state.ToString());
             doModeAlways();
-/*            
-            if (AnyConnectorIsConnected() && !((craft_operation & CRAFT_MODE_ORBITAL) > 0))
-            {
-                Echo("DM:docked");
-                setMode(MODE_DOCKED);
-            }
-*/
 
-            if (iMode == MODE_FINDORE) doModeFindOre();
+            //           if (iMode == MODE_DOSCAN) doModeScans();
+            if (iMode == MODE_MINE) doModeMine();
             if (iMode == MODE_GOTOORE) doModeGotoOre();
-            if (iMode == MODE_MININGORE) doModeMiningOre();
+            if (iMode == MODE_BORESINGLE) doModeMineSingleBore();
+            //            if (iMode == MODE_BORINGMINE) doModeBoringMine();
             if (iMode == MODE_EXITINGASTEROID) doModeExitingAsteroid();
 
             if (iMode == MODE_SEARCHORIENT) doModeSearchOrient();
@@ -41,10 +36,21 @@ namespace IngameScript
             if (iMode == MODE_SEARCHVERIFY) doModeSearchVerify();
             if (iMode == MODE_SEARCHCORE) doModeSearchCore();
 
-/*
-            if (iMode == MODE_IDLE) doModeIdle();
-            else if (iMode == MODE_DESCENT) doModeDescent();
-*/
+            if (iMode == MODE_DOCKED) OreClearAmounts();
+
+            if(iMode==MODE_LAUNCHED)
+            {
+                if (miningAsteroidID > 0)
+                    setMode(MODE_MINE);
+            }
+            if (iMode == MODE_GOINGTARGET)
+            {
+                if (NAVTargetName != "")
+                {
+                    Echo("Going to " + NAVTargetName);
+                }
+            }
+
         }
         #endregion
 
@@ -63,6 +69,12 @@ namespace IngameScript
         }
         #endregion
 
+        double dCargoCheckWait = 2; //seconds between checks
+        double dCargoCheckLast = -1;
+
+        double dBatteryCheckWait = 5; //seconds between checks
+        double dBatteryCheckLast = -1;
+
         void doModeAlways()
         {
 	        processPendingSends();
@@ -70,40 +82,157 @@ namespace IngameScript
         }
          void moduleDoPreModes()
         {
+            if (dCargoCheckLast > dCargoCheckWait)
+            {
+                dCargoCheckLast = 0;
+                doCargoCheck();
+            }
+            else
+            {
+                if (dCargoCheckLast < 0)
+                {
+                    // first-time init
+                    dCargoCheckLast = dCargoCheckWait + 5; // force check
+                }
+                dCargoCheckLast += Runtime.TimeSinceLastRun.TotalSeconds;
+            }
+
+//            Echo("Cargo=" + cargopcent.ToString() + "%");
+
+            if (dBatteryCheckLast > dBatteryCheckWait)
+            {
+                dBatteryCheckLast = 0;
+                batteryCheck(0, false);
+            }
+            else
+            {
+                if (dBatteryCheckLast < 0)
+                {
+                    // first-time init
+                    dBatteryCheckLast = dBatteryCheckWait + 5; // force check
+                }
+                dBatteryCheckLast += Runtime.TimeSinceLastRun.TotalSeconds;
+            }
+
+
+            TanksCalculate();
+
+            //            Echo("Width=" + shipDim.WidthInMeters());
+            //            Echo("Height=" + shipDim.HeightInMeters());
+            //            Echo("Length=" + shipDim.LengthInMeters());
+            if (miningAsteroidID > 0)
+                Echo("AsteroidCurrentX=" + AsteroidCurrentX + " Y=" + AsteroidCurrentY);
+//            Echo("AsteroidMaxX=" + AsteroidMaxX + " AsteroidMaxY=" + AsteroidMaxY);
+            //            MinerCalculateBoreSize();
+            //            Echo("Boreheight=" + MiningBoreHeight);
+            //            Echo("BoreWidth=" + MiningBoreWidth);
+//            Echo("iMMFWiggle=" + iMMFWiggle);
         }
 
         void modulePostProcessing()
         {
-            if (init)
+            string output = "";
+            if (init) // only if init is done
             {
-            // only need to do these like once per second. or if something major changes.
-                doCargoOreCheck();
-                dumpFoundOre();
-                //dumpOreLocs();
 
                 double maxThrust = calculateMaxThrust(thrustForwardList);
-                Echo("maxThrust=" + maxThrust.ToString("N0"));
+//                Echo("maxThrust=" + maxThrust.ToString("N0"));
 
-                MyShipMass myMass;
-                myMass = ((IMyShipController)gpsCenter).CalculateShipMass();
-                double effectiveMass = myMass.PhysicalMass;
-                Echo("effectiveMass=" + effectiveMass.ToString("N0"));
+                if (shipOrientationBlock is IMyShipController)
+                {
+                    MyShipMass myMass;
+                    myMass = ((IMyShipController)shipOrientationBlock).CalculateShipMass();
+                    double effectiveMass = myMass.PhysicalMass;
+//                    Echo("effectiveMass=" + effectiveMass.ToString("N0"));
 
-                double maxDeltaV = (maxThrust) / effectiveMass;
-                Echo("maxDeltaV=" + maxDeltaV.ToString("0.00"));
-
+                    double maxDeltaV = (maxThrust) / effectiveMass;
+                    Echo("maxDeltaV=" + maxDeltaV.ToString("0.00"));
+                }
                 Echo("Cargo=" + cargopcent.ToString() + "%");
+
+                OreDumpFound();
+
+                //dumpOreLocs();
             }
+
+            output += "Batteries: #=" + batteryList.Count.ToString();
+            if (batteryList.Count > 0 && maxBatteryPower > 0)
+            {
+                output += " : " + (getCurrentBatteryOutput() / maxBatteryPower * 100).ToString("0.00") + "%";
+                output += "\n Storage=" + batteryPercentage.ToString() + "%";
+                /*
+                // Debug Info:
+                foreach (var tb in batteryList)
+                {
+                    float foutput = 0;
+                    IMyBatteryBlock r = tb as IMyBatteryBlock;
+
+                    MyResourceSourceComponent source;
+                    r.Components.TryGet<MyResourceSourceComponent>(out source);
+
+                    if (source != null)
+                    {
+                        foutput = source.MaxOutput;
+                    }
+
+//                    PowerProducer.GetMaxOutput(r, out foutput);
+                    output+=foutput.ToString() + "MW " + r.CustomName;
+                }
+                */
+            }
+
+            Echo(output);
+            output = "";
+
+            if (solarList.Count > 0)
+                Echo("Solar: #" + solarList.Count.ToString() + " " + currentSolarOutput.ToString("0.00" + "MW"));
+
+            float fCurrentReactorOutput = 0;
+            reactorCheck(out fCurrentReactorOutput);
+            if (reactorList.Count > 0)
+            {
+                output = "Reactors: #" + reactorList.Count.ToString();
+                output += " - " + maxReactorPower.ToString("0.00") + "MW\n";
+                float fPer = (float)(fCurrentReactorOutput / totalMaxPowerOutput * 100);
+                output += " Curr Output=" + fCurrentReactorOutput.ToString("0.00") + "MW" + " : " + fPer.ToString("0.00") + "%";
+                //			Echo("Reactor total usage=" + fPer.ToString("0.00") + "%");
+
+                /*
+                // debug output
+                foreach (var tb in reactorList)
+                {
+                    IMyReactor r = tb as IMyReactor;
+                    Echo(r.MaxOutput.ToString() + " " + r.CustomName);
+                }
+                */
+
+            }
+            Echo(output);
+            output = "";
+
+            Echo("TotalMaxPower=" + totalMaxPowerOutput.ToString("0.00" + "MW"));
+
+            Echo(asteroidsInfo.Count.ToString() + " Known Asteroids");
+            Echo(oreLocs.Count.ToString() + " Known Ores");
+ //           OreDumpLocs();
+
+            //            Echo("width=" + shipDim.WidthInMeters().ToString("0.0"));
+            //            Echo("height=" + shipDim.HeightInMeters().ToString("0.0"));
+            //            Echo("length=" + shipDim.LengthInMeters().ToString("0.0"));
 
             Echo(sInitResults);
             echoInstructions();
         }
+
         void processReceives()
         {
-
             if (sReceivedMessage != "")
             {
                 Echo("Received Message=\n" + sReceivedMessage);
+
+                if (AsteroidProcessMessage(sReceivedMessage))
+                    return;
+
                 string[] aMessage = sReceivedMessage.Trim().Split(':');
 
                 if (aMessage.Length > 1)
@@ -115,7 +244,7 @@ namespace IngameScript
                     }
                     if (aMessage.Length > 2)
                     {
-/*
+                        /*
                         if (aMessage[1] == "MOM")
                         {
                         }
@@ -123,19 +252,6 @@ namespace IngameScript
                     }
                 }
             }
-/*
-            if (lMomID == 0)
-            {
-                Echo("Orphan!!!");
-                if (!bMomRequestSent)
-                {
-                    antSend("WICO:HELLO:" + Me.CubeGrid.CustomName + ":" + SaveFile.EntityId.ToString() + ":" + Vector3DToString(gpsCenter.GetPosition()));
-                    bMomRequestSent = true;
-                }
-            }
-            else
-                Echo("Mom=" + sMomName);
-                */
         }
 
     }

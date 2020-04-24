@@ -18,6 +18,19 @@ namespace IngameScript
 {
     partial class Program : MyGridProgram
     {
+        // read INI defaults from CustomData.  If you don't want to use my INI, remove or modify the following routine
+        string sGyroIgnore = "!NAV";
+
+        void GyroInitCustomData(INIHolder iNIHolder)
+        {
+            iNIHolder.GetValue(sGridSection, "GyroIgnore", ref sGyroIgnore, true);
+            iNIHolder.GetValue(sGridSection, "LIMIT_GYROS", ref LIMIT_GYROS, true);
+            iNIHolder.GetValue(sGridSection, "LEAVE_GYROS", ref LEAVE_GYROS, true);
+            iNIHolder.GetValue(sGridSection, "CTRL_COEFF", ref CTRL_COEFF, true);
+        }
+
+        // 0608/2018: Add BeamRider
+        // 03/08/2018: Fix for change in Terminal Properties. Was using MaxValue of "Yaw" to determine range...  now (after Keen changes) that's WRONG!
         // 12/09 Add Summaries to members and functions
         // 09/11 Turn on gyros we are going to use
         // 04/30 only .ToLower ONCE
@@ -32,7 +45,7 @@ namespace IngameScript
         #region Autogyro 
         // Originally from: http://forums.keenswh.com/threads/aligning-ship-to-planet-gravity.7373513/#post-1286885461 
 
-        // NOTE: uses: gpsCenter from other code as the designated remote or ship controller
+        // NOTE: uses: shipOrientationBlock from other code as the designated remote or ship controller
 
         /// <summary>
         /// GYRO:How much power to use 0 to 1.0
@@ -42,7 +55,7 @@ namespace IngameScript
         /// <summary>
         /// GYRO:max number of gyros to use to align craft. Leaving some available allows for player control to continue during auto-align 
         /// </summary>
-        int LIMIT_GYROS = 3;
+        int LIMIT_GYROS = 99;
 
         /// <summary>
         /// GYRO:leave this many gyros free for user. less than 0 means none. (not fully tested)
@@ -57,7 +70,7 @@ namespace IngameScript
         /// <summary>
         /// GYRO:The list of approved gyros to use for aiming
         /// </summary>
-        List<IMyGyro> gyros;
+        List<IMyGyro> gyros = new List<IMyGyro>();
 
         /// <summary>
         /// GYRO:how tight to maintain aim. Lower is tighter. Default is 0.01f
@@ -73,7 +86,7 @@ namespace IngameScript
             if (gyroControl is IMyShipController)
             {
                 Vector3D grav = (gyroControl as IMyShipController).GetNaturalGravity();
-                return GyroMain(argument, grav, gpsCenter);
+                return GyroMain(argument, grav, shipOrientationBlock);
             }
             else
             {
@@ -89,45 +102,47 @@ namespace IngameScript
         /// <param name="argument">The direction to point. "rocket" (backward),  "backward", "up","forward"</param>
         /// <param name="vDirection">the vector for the aim.</param>
         /// <param name="gyroControlPoint">the terminal block to use for orientation</param>
-        /// <returns></returns>
+        /// <returns>true if aligned. Meaning the angle of error is less than minAngleRad</returns>
         bool GyroMain(string argument, Vector3D vDirection, IMyTerminalBlock gyroControlPoint)
         {
             bool bAligned = true;
             if (gyroControl == null)
                 gyrosetup();
 //            Echo("GyroMain(" + argument + ",VECTOR3D) #Gyros=" + gyros.Count);
-            Matrix or;
-            gyroControlPoint.Orientation.GetMatrix(out or);
+            Matrix or1;
+            gyroControlPoint.Orientation.GetMatrix(out or1);
 
             Vector3D down;
             argument = argument.ToLower();
             if (argument.Contains("rocket"))
-                down = or.Backward;
+                down = or1.Backward;
             else if (argument.Contains("up"))
-                down = or.Up;
+                down = or1.Up;
             else if (argument.Contains("backward"))
-                down = or.Backward;
+                down = or1.Backward;
             else if (argument.Contains("forward"))
-                down = or.Forward;
+                down = or1.Forward;
+            else if (argument.Contains("right"))
+                down = or1.Right;
+            else if (argument.Contains("left"))
+                down = or1.Left;
             else
-                down = or.Down;
+                down = or1.Down;
 
             vDirection.Normalize();
 
-            for (int i = 0; i < gyros.Count; ++i)
+            for (int i1 = 0; i1 < gyros.Count; ++i1)
             {
-                var g = gyros[i];
-                g.Orientation.GetMatrix(out or);
+                var g1 = gyros[i1];
+                g1.Orientation.GetMatrix(out or1);
 
-                // not really 'down'.. just the direciton we are currently pointing
-                var localDown = Vector3D.Transform(down, MatrixD.Transpose(or));
-                // not really gravity. just the direction we want to point
-                var localGrav = Vector3D.Transform(vDirection, MatrixD.Transpose(g.WorldMatrix.GetOrientation())); 
+                var localCurrent = Vector3D.Transform(down, MatrixD.Transpose(or1));
+                var localTarget = Vector3D.Transform(vDirection, MatrixD.Transpose(g1.WorldMatrix.GetOrientation())); 
 
                 //Since the gyro ui lies, we are not trying to control yaw,pitch,roll but rather we 
                 //need a rotation vector (axis around which to rotate) 
-                var rot = Vector3D.Cross(localDown, localGrav);
-                double dot2 = Vector3D.Dot(localDown, localGrav);
+                var rot = Vector3D.Cross(localCurrent, localTarget);
+                double dot2 = Vector3D.Dot(localCurrent, localTarget);
                 double ang = rot.Length();
                 ang = Math.Atan2(ang, Math.Sqrt(Math.Max(0.0, 1.0 - ang * ang)));
                 if (dot2 < 0) ang = Math.PI - ang; // compensate for >+/-90
@@ -135,35 +150,37 @@ namespace IngameScript
                 { // close enough 
 
                     //g.SetValueBool("Override", false);
-                    g.GyroOverride = false;
+                    g1.GyroOverride = false;
                     continue;
                 }
                 //		Echo("Auto-Level:Off level: "+(ang*180.0/3.14).ToString()+"deg"); 
 
-                float yawMax = g.GetMaximum<float>("Yaw"); // we assume all three are the same max
+                // !KEEN  Change in 1.185 or .186..  gah...
+                //                float yawMax = g.GetMaximum<float>("Yaw"); // we assume all three are the same max
+
+                float yawMax = (float)(2 * Math.PI);
+
                 double ctrl_vel = yawMax * (ang / Math.PI) * CTRL_COEFF;
+
                 ctrl_vel = Math.Min(yawMax, ctrl_vel);
                 ctrl_vel = Math.Max(0.01, ctrl_vel);
                 rot.Normalize();
                 rot *= ctrl_vel;
-//                float pitch = -(float)rot.GetDim(0);
+
                 float pitch = -(float)rot.X;
-               //g.SetValueFloat("Pitch", -pitch);
-                g.Pitch = pitch;
+                if (Math.Abs(g1.Pitch - pitch) > 0.01)
+                    g1.Pitch = pitch;
 
-//                float yaw = -(float)rot.GetDim(1);
                 float yaw = -(float)rot.Y;
-                //g.SetValueFloat("Yaw", yaw);
-                g.Yaw = yaw;
+                if (Math.Abs(g1.Yaw - yaw) > 0.01)
+                    g1.Yaw = yaw;
 
-//                float roll = -(float)rot.GetDim(2);
                 float roll = -(float)rot.Z;
-                //                g.SetValueFloat("Roll", roll);
-                g.Roll = roll;
+                if (Math.Abs(g1.Roll - roll) > 0.01)
+                    g1.Roll = roll;
 
                 //		g.SetValueFloat("Power", 1.0f); 
-                //g.SetValueBool("Override", true);
-                g.GyroOverride = true;
+                g1.GyroOverride = true;
 
                 bAligned = false;
             }
@@ -178,43 +195,52 @@ namespace IngameScript
         string gyrosetup()
         {
             string s = "";
-            var l = new List<IMyTerminalBlock>();
-            gyroControl = gpsCenter as IMyShipController;
+            var l1 = new List<IMyTerminalBlock>();
+            gyroControl = shipOrientationBlock as IMyShipController;
+            gyros.Clear();
 
             if (gyroControl == null)
             {
                 // purposefully dont search on our own for a controller
-                if (l.Count < 1) return "No RC!";
+                if (l1.Count < 1) return "No RC!";
 //                gyroControl = (IMyRemoteControl)l[0];
             }
             gyrosOff(); // turn off any working gyros from previous runs
                         // NOTE: Uses grid of controller, not ME, nor localgridfilter
-            GridTerminalSystem.GetBlocksOfType<IMyGyro>(l, x => x.CubeGrid == gpsCenter.CubeGrid);
-            //    s += "ALLGYRO#=" + l.Count + "#";
-            var l2 = new List<IMyTerminalBlock>();
+            GridTerminalSystem.GetBlocksOfType<IMyGyro>(l1, x => x.CubeGrid == shipOrientationBlock.CubeGrid);
+ //               s += "ALLGYRO#=" + l1.Count + "#";
+ //           var l2 = new List<IMyTerminalBlock>();
             int skipped = 0;
-            for (int i = 0; i < l.Count; i++)
+            for (int i1 = 0; i1 < l1.Count; i1++)
             {
-                //       s += "\n" + l[i].CustomName;
-                if (l[i].CustomName.Contains("!NAV") || l[i].CustomData.Contains("!NAV"))
+//                       s += "\n" + l1[i1].CustomName;
+                if (l1[i1].CustomName.Contains(sGyroIgnore) || l1[i1].CustomData.Contains(sGyroIgnore))
                 {
                     skipped++;
                     continue;
                 }
-                //        s += " ADDED";
-                l2.Add(l[i]);
+//                        s += " ADDED";
+                gyros.Add(l1[i1] as IMyGyro);
+//                l2.Add(l1[i1]);
             }
-            gyros = l2.ConvertAll(x => (IMyGyro)x);
+            //            gyros = l2.ConvertAll(x => (IMyGyro)x);
+ //           s += "PRELIMITGYRO#" + gyros.Count.ToString("00") + "#";
             if (LIMIT_GYROS > 0)
+            {
+//                s += " Limiting to " + LIMIT_GYROS;
                 if (gyros.Count > LIMIT_GYROS)
-                    gyros.RemoveRange(LIMIT_GYROS, gyros.Count - LIMIT_GYROS);
-                else
-                if ((LEAVE_GYROS - skipped) > 0)
                 {
-                    int index = gyros.Count - (LEAVE_GYROS - skipped);
-                    gyros.RemoveRange(index, (LEAVE_GYROS - skipped));
+                    gyros.RemoveRange(LIMIT_GYROS, gyros.Count - LIMIT_GYROS);
                 }
-
+                else
+                {
+                    if ((LEAVE_GYROS - skipped) > 0)
+                    {
+                        int index = gyros.Count - (LEAVE_GYROS - skipped);
+                        gyros.RemoveRange(index, (LEAVE_GYROS - skipped));
+                    }
+                }
+            }
             gyrosOff(); // turn off all overrides
 
             s += "GYRO#" + gyros.Count.ToString("00") + "#";
@@ -227,16 +253,47 @@ namespace IngameScript
         {
             if (gyros != null)
             {
-                for (int i = 0; i < gyros.Count; ++i)
+                for (int i1 = 0; i1 < gyros.Count; ++i1)
                 {
                     //gyros[i].SetValueBool("Override", false);
-                    gyros[i].GyroOverride = false;
-                    gyros[i].Enabled = true;
+                    gyros[i1].GyroOverride = false;
+                    gyros[i1].Enabled = true;
                 }
             }
         }
         #endregion
 
+        bool BeamRider(Vector3D vStart, Vector3D vEnd, IMyTerminalBlock OrientationBlock)
+        {
+            // 'BeamRider' routine that takes start,end and tries to stay on that beam.
+            bool bAimed = false;
+            Vector3D vBoreEnd = (vEnd - vStart);
+            Vector3D vPosition;
+            if (OrientationBlock is IMyShipController)
+            {
+                vPosition = ((IMyShipController)OrientationBlock).CenterOfMass;
+            }
+            else
+            {
+                vPosition = OrientationBlock.GetPosition();
+            }
+            Vector3D vAimEnd = (vEnd - vPosition );
+            Vector3D vRejectEnd = VectorRejection(vBoreEnd, vAimEnd);
+
+            Vector3D vCorrectedAim = (vEnd - vRejectEnd * 2) - vPosition;
+
+            bAimed = GyroMain("forward", vCorrectedAim, OrientationBlock);
+            return bAimed;
+        }
+
+        // From Whip. on discord
+        Vector3D VectorRejection(Vector3D a, Vector3D b) //reject a on b    
+        {
+            if (Vector3D.IsZero(b))
+                return Vector3D.Zero;
+
+            return a - a.Dot(b) / b.LengthSquared() * b;
+        }
 
 
     }

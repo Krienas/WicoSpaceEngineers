@@ -18,6 +18,15 @@ namespace IngameScript
 {
     partial class Program : MyGridProgram
     {
+        bool CommunicationsStealth = false;
+
+        string sAntennaSection = "COMMUNICATIONS";
+
+        void CommunicationsInitCustomData(INIHolder iNIHolder)
+        {
+            iNIHolder.GetValue(sAntennaSection, "CommunicationsStealth", ref CommunicationsStealth, false);
+        }
+
         bool bGotAntennaName = false;
 
         List<IMyRadioAntenna> antennaList = new List<IMyRadioAntenna>();
@@ -32,15 +41,15 @@ namespace IngameScript
             antennaList.Clear();
             antennaLList.Clear();
 
-            GetTargetBlocks<IMyRadioAntenna>(ref antennaList, "");
-            GetTargetBlocks<IMyLaserAntenna>(ref antennaLList, "");
-            for (int i = 0; i < antennaList.Count; ++i)
+            GetTargetBlocks<IMyRadioAntenna>(ref antennaList);
+            GetTargetBlocks<IMyLaserAntenna>(ref antennaLList);
+            for (int i1 = 0; i1 < antennaList.Count; ++i1)
             {
-                if (antennaList[i].CustomName.Contains("unused") || antennaList[i].CustomData.Contains("unused"))
+                if (antennaList[i1].CustomName.Contains("unused") || antennaList[i1].CustomData.Contains("unused"))
                     continue;
                 if (!bGotAntennaName)
                 {
-                    OurName = "Wico " + antennaList[i].CustomName.Split('!')[0].Trim();
+                    OurName = "Wico " + antennaList[i1].CustomName.Split('!')[0].Trim();
                     bGotAntennaName = true;
                 }
             }
@@ -58,13 +67,14 @@ namespace IngameScript
             }
         }
 
-        string sLastReceivedMessage = "";
+        //string sLastReceivedMessage = "";
         
         /// <summary>
         /// Check if there are any messages that were waiting to be processed by modules and clear them if needed.
         /// </summary>
-        void AntennaCheckOldMessages()
+        void AntennaCheckOldMessages() // OBSOLETE
         {
+            /*
 	        if (sReceivedMessage != "")
 	        {
 //		        Echo("Checking Message:\n" + sReceivedMessage);
@@ -77,6 +87,7 @@ namespace IngameScript
 		        sLastReceivedMessage = sReceivedMessage;
 	        }
 	        else sLastReceivedMessage = "";
+            */
         }
 
         /// <summary>
@@ -98,8 +109,11 @@ namespace IngameScript
         /// <summary>
         /// Set the antenna with the highest radius to call this script.
         /// </summary>
-        void SetAntennaMe()
+        bool SetAntennaMe()
         {
+            return true;
+            /* Obsolete with the new IGC
+            bool bGood = false;
             float maxRadius = 0;
             int iMax = -1;
             for(int i=0;i<antennaList.Count;i++)
@@ -107,6 +121,7 @@ namespace IngameScript
                 if(antennaList[i].AttachedProgrammableBlock == Me.EntityId)
                 {
                     // we are already set as a target, so stop looking
+                    bGood = true;
                     iMax = i;
                     break;
                 }
@@ -121,11 +136,14 @@ namespace IngameScript
                 if (antennaList[iMax].AttachedProgrammableBlock != Me.EntityId)
                     sInitResults += "\nSetting Antenna PB";
                 antennaList[iMax].AttachedProgrammableBlock = Me.EntityId;
+                bGood = true;
             }
             else
             {
                 // no available antenna
             }
+            return bGood;
+            */
         }
 
         /// <summary>
@@ -139,10 +157,12 @@ namespace IngameScript
             foreach (var a in antennaList)
             {
                 a.Radius = 200;
+                /* Removed in 1.193.100
                 if (a.AttachedProgrammableBlock > 0 || bAll)
                 {
                     a.Enabled = true;
                 }
+                */
            }
         }
 
@@ -154,12 +174,14 @@ namespace IngameScript
         void antennaSetRadius(float fRadius=200, bool bAll=false)
         {
             if (antennaList.Count < 1) antennaInit();
-            foreach (var a in antennaList)
+            foreach (var a1 in antennaList)
             {
-                if (a.AttachedProgrammableBlock > 0 || bAll)
+                /* Removed in 1.193.100
+                if (a1.AttachedProgrammableBlock > 0 || bAll)
+                */
                 {
-                    a.Radius = fRadius;
-                    a.Enabled = true;
+                    a1.Radius = fRadius;
+                    a1.Enabled = true;
                 }
             }
         }
@@ -171,161 +193,102 @@ namespace IngameScript
         Vector3D antennaPosition()
         {
             if (antennaList.Count < 1) antennaInit();
-            foreach (var a in antennaList)
+            /* Removed in 1.193.100
+
+        foreach (var a1 in antennaList)
+        {
+            if (a1.AttachedProgrammableBlock == Me.EntityId )
             {
-                if (a.AttachedProgrammableBlock == Me.EntityId )
-                {
-                    // return the position of one we are listening to
-                    return a.GetPosition();
-                }
+                // return the position of one we are listening to
+                return a1.GetPosition();
             }
-            foreach (var a in antennaList)
+        }
+        */
+        foreach (var a1 in antennaList)
+        {
+            // else any one will do
+            return a1.GetPosition();
+        }
+        Vector3D vNone = new Vector3D();
+        return vNone;
+    }
+
+    /// <summary>
+    /// Internal: desired range of antennas when transmitting.
+    /// </summary>
+    float fAntennaDesiredRange = float.MaxValue;
+
+    /// <summary>
+    /// Sets the desired max power of the antenna(s)
+    /// </summary>
+    /// <param name="bAll">Sets all the antennas.  Default to set only the ones that have script attached</param>
+    /// <param name="desiredRange">Range. Default is max</param>
+    void antennaMaxPower(bool bAll=false, float desiredRange=float.MaxValue)
+    {
+//            if (antennaList==null || antennaList.Count < 1) antennaInit();
+        if (desiredRange < 200) desiredRange = 200;
+        fAntennaDesiredRange = desiredRange;
+
+        // if silent mode
+        // return;
+        // else set range now
+        AntennaSetDesiredPower(bAll);
+    }
+
+    void AntennaSetDesiredPower(bool bAll = false)
+    {
+        if (antennaList == null || antennaList.Count < 1) antennaInit();
+        foreach (var a in antennaList)
+        {
+                /* Removed in 1.193.100
+            if (a.AttachedProgrammableBlock > 0 || bAll)
+            */
             {
-                // else any one will do
-                return a.GetPosition();
+                float maxPower = a.GetMaximum<float>("Radius");
+                if (fAntennaDesiredRange < maxPower) maxPower = fAntennaDesiredRange;
+                a.Radius = maxPower;
+                a.Enabled = true;
             }
-            Vector3D vNone = new Vector3D();
-            return vNone;
+        }
+    }
+
+    /// <summary>
+    /// Returns the number of antennas available
+    /// </summary>
+    /// <returns></returns>
+    int AntennaCount()
+    {
+        if (antennaList.Count < 1) antennaInit();
+        return (antennaList.Count);
+    }
+
+    #region AntennaSend
+
+//    List<string> lPendingMessages = new List<string>();
+
+
+        /// <summary>
+        /// IGC broadcast send a message
+        /// </summary>
+        /// <param name="tag"></param>
+        /// <param name="message"></param>
+        void antSend(string tag, string message)
+        {
+            IGC.SendBroadcastMessage(tag, message);
         }
 
         /// <summary>
-        /// Sets the max power of the antenna(s)
+        /// IGC Unicast send a message
         /// </summary>
-        /// <param name="bAll">Sets all the antennas.  Default to set only the ones that have script attached</param>
-        /// <param name="desiredRange">Range. Default is max</param>
-        void antennaMaxPower(bool bAll=false, float desiredRange=float.MaxValue)
+        /// <param name="targetID"></param>
+        /// <param name="tag"></param>
+        /// <param name="message"></param>
+        void antSend(long targetID, string tag, string message)
         {
-            if (antennaList.Count < 1) antennaInit();
-            if (desiredRange < 200) desiredRange = 200;
-
-            foreach (var a in antennaList)
-            {
-                if (a.AttachedProgrammableBlock > 0 || bAll)
-                {
-                    float maxPower = a.GetMaximum<float>("Radius");
-                    if (desiredRange < maxPower) maxPower = desiredRange;
-                    a.Radius = maxPower;
-                    a.Enabled = true;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Returns the number of antennas available
-        /// </summary>
-        /// <returns></returns>
-        int AntennaCount()
-        {
-            if (antennaList.Count < 1) antennaInit();
-            return (antennaList.Count);
-        }
-
-        #region AntennaSend
-
-        List<string> lPendingMessages = new List<string>();
-
-        /// <summary>
-        /// Process any pending sends that are in the queue
-        /// </summary>
-        void processPendingSends()
-        {
-            if (lPendingMessages.Count > 0)
-            {
-                antSend(lPendingMessages[0]);
-                lPendingMessages.RemoveAt(0);
-            }
-            if (lPendingMessages.Count > 0) bWantFast = true; // if there are more, process quickly
-        }
-
-        /// <summary>
-        /// Send a message. Queues messages if it cannot be sent immediately
-        /// </summary>
-        /// <param name="message">The message to send</param>
-        void antSend(string message)
-        {
-//            Echo("Sending:\n" + message);
-            bool bSent = false;
-            if (antennaList.Count < 1) antennaInit();
-            for (int i = 0; i < antennaList.Count; i++)
-            { // try all available antennas
-              // try immediate send:
-                bSent = antennaList[i].TransmitMessage(message);
-                if (bSent)
-                    break;
-            }
-            if (!bSent)
-            {
-                if (AntennaCount() > 0)
-                { // no sense queueing if we don't have any antennas.
-                    lPendingMessages.Add(message);
-                    bWantFast = true;
-                }
-            }
+            IGC.SendUnicastMessage(targetID, tag, message);
         }
         #endregion
 
-        #region AntennaReceive
-        // This is for the module(s) that are set to be targets of messages from antennas
-
-        List<string> lPendingIncomingMessages = new List<string>();
-
-        /// <summary>
-        /// Process pending receives.
-        /// </summary>
-        /// <param name="bMain">set to true if we are a 'Main' craft control. default false if we are a sub-module</param>
-        void processPendingReceives(bool bMain=false)
-        {
-            if (lPendingIncomingMessages.Count > 0)
-            {
-                if (sReceivedMessage == "")
-                { // receiver signals processed by removing message
-                    sReceivedMessage = lPendingIncomingMessages[0];
-                    lPendingIncomingMessages.RemoveAt(0);
-                    if (bMain)
-                    {
-                        bWantFast = true;
-                    }
-                    else
-                    {
-                       doTriggerMain();
-                    }
-                }
-            }
-            if (lPendingIncomingMessages.Count > 0)
-            {
-                // if there are more, process quickly
-//                doTriggerMain();
-                // NOTE: In MAIN module, this should be bWantFast=true;
-//                bWantFast = true; 
-            }
-        }
-
-        /// <summary>
-        /// Add the received message to the queue
-        /// </summary>
-        /// <param name="message">The message to add to the queue</param>
-        void antReceive(string message)
-        {
-//            Echo("RECEIVE:\n" + message);
-            lPendingIncomingMessages.Add(message);
-            processPendingReceives();
-
-//            doTriggerMain();
-            //bWantFast = true;
-        }
-
-        void AntDisplayPendingMessages()
-        {
-            if (antennaList.Count > 0)
-            {
-                Echo(lPendingIncomingMessages.Count + " Pending Incoming Messages");
-                for (int i = 0; i < lPendingIncomingMessages.Count; i++)
-                    Echo(i + ":" + lPendingIncomingMessages[i]);
-            }
-            else
-                Echo("No antennas found");
-        }
-        #endregion
 
 
     }

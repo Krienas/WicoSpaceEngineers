@@ -18,48 +18,137 @@ namespace IngameScript
 {
     partial class Program : MyGridProgram
     {
+
+        int cargopctmin = 5;
+        int cargopcent = -1;
+        double cargoMult = -1;
+
+
+        // 1212018 Reduce common serialize to minimum
+
         // 1/24: SE 1.172
-        #region cargocheck
+
+        string sCargoSection = "CARGO";
+        void CargoInitCustomData(INIHolder iNIHolder)
+        {
+            iNIHolder.GetValue(sCargoSection, "cargopctmin", ref cargopctmin, true);
+        }
 
         List<IMyTerminalBlock> lContainers = null;
         //List < IMyTerminalBlock > lDrills = new List < IMyTerminalBlock > ();
 
         bool bCreative = false;
 
-        double totalCurrent = 0.0; // volume
+        double totalCurrentVolume= 0.0; // volume
 
-        void initCargoCheck()
+        void CargoCheckInit()
         {
-            List<IMyTerminalBlock> grid = new List<IMyTerminalBlock>();
+            var blocks = new List<IMyTerminalBlock>();
 
             if (lContainers == null) lContainers = new List<IMyTerminalBlock>();
             else lContainers.Clear();
 
-            GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(grid, localGridFilter);
-                        lContainers.AddRange(grid);
+            //            GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(grid, localGridFilter);
+            GetTargetBlocks<IMyCargoContainer>(ref blocks);
 
-            grid.Clear();
-            GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(grid, localGridFilter);
-            foreach(var c in grid)
+            lContainers.AddRange(blocks);
+            cargopcent = -1;
+            cargoMult = -1;
+
+        }
+
+        void CargoCheckAddConnectors()
+        {
+            var blocks = new List<IMyTerminalBlock>();
+            //            GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(grid, localGridFilter);
+            GetTargetBlocks<IMyShipConnector>(ref blocks);
+            foreach (var c in blocks)
             { // don't count ejectors
                 if (c.CustomName.Contains("Ejector") || c.CustomData.Contains("Ejector"))
                     continue;
                 else
                     lContainers.Add(c);
             }
+
+        }
+
+        void CargoCheckAddDrills()
+        {
+            var blocks = new List<IMyTerminalBlock>();
+            //            GridTerminalSystem.GetBlocksOfType<IMyShipDrill>(grid, localGridFilter);
+            GetTargetBlocks<IMyShipDrill>(ref blocks);
+            lContainers.AddRange(blocks);
+        }
+        void CargoCheckAddWelders()
+        {
+            var blocks = new List<IMyTerminalBlock>();
+            //            GridTerminalSystem.GetBlocksOfType<IMyShipWelder>(grid, localGridFilter);
+            GetTargetBlocks<IMyShipWelder>(ref blocks);
+            lContainers.AddRange(blocks);
+        }
+        void CargoCheckAddGrinders()
+        {
+            var blocks = new List<IMyTerminalBlock>();
+            //            GridTerminalSystem.GetBlocksOfType<IMyShipGrinder>(grid, localGridFilter);
+            GetTargetBlocks<IMyShipGrinder>(ref blocks);
+            lContainers.AddRange(blocks);
+        }
+
+        bool bCargoCheckCached = true;
+
+        void initCargoCheck()
+        {
+            var blocks = new List<IMyTerminalBlock>();
+
+            if (lContainers == null) lContainers = new List<IMyTerminalBlock>();
+            else lContainers.Clear();
+
+            if(!bCargoCheckCached)
+                GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(blocks, localGridFilter);
+            else
+               GetTargetBlocks<IMyCargoContainer>(ref blocks);
+
+            lContainers.AddRange(blocks);
+
+            blocks.Clear();
+
+            if (!bCargoCheckCached)
+                GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(blocks, localGridFilter);
+            else
+                GetTargetBlocks<IMyShipConnector>(ref blocks);
+
+            foreach (var c in blocks)
+            { // don't count ejectors nor sorters
+                if (c.CustomName.Contains("Ejector") || c.CustomData.Contains("Ejector"))
+                    continue;
+                else if (c.CustomName.Contains("Sorter") || c.CustomData.Contains("Sorter"))
+                    continue;
+                else
+                    lContainers.Add(c);
+            }
 //            lContainers.AddRange(grid);
 
-            grid.Clear();
-            GridTerminalSystem.GetBlocksOfType<IMyShipDrill>(grid, localGridFilter);
-            lContainers.AddRange(grid);
+            blocks.Clear();
+            if (!bCargoCheckCached)
+                GridTerminalSystem.GetBlocksOfType<IMyShipDrill>(blocks, localGridFilter);
+            else
+                GetTargetBlocks<IMyShipDrill>(ref blocks);
+            lContainers.AddRange(blocks);
 
-            grid.Clear();
-            GridTerminalSystem.GetBlocksOfType<IMyShipWelder>(grid, localGridFilter);
-            lContainers.AddRange(grid);
+            blocks.Clear();
+            if (!bCargoCheckCached)
+                GridTerminalSystem.GetBlocksOfType<IMyShipWelder>(blocks, localGridFilter);
+            else
+            GetTargetBlocks<IMyShipWelder>(ref blocks);
 
-            grid.Clear();
-            GridTerminalSystem.GetBlocksOfType<IMyShipGrinder>(grid, localGridFilter);
-            lContainers.AddRange(grid);
+            lContainers.AddRange(blocks);
+
+            blocks.Clear();
+            if (!bCargoCheckCached)
+                GridTerminalSystem.GetBlocksOfType<IMyShipGrinder>(blocks, localGridFilter);
+            else
+                GetTargetBlocks<IMyShipGrinder>(ref blocks);
+            lContainers.AddRange(blocks);
 
             cargopcent = -1;
             cargoMult = -1;
@@ -77,18 +166,80 @@ namespace IngameScript
                 cargoMult = -1;
                 return;
             }
-            totalCurrent = 0.0;
+            totalCurrentVolume = 0.0;
             double totalMax = 0.0;
             double ratio = 0;
 
+            bool bCargoFull = true;
+            bool bDrillFull = false;
+
+            // TODO: if all cargo containers are full and ANY drill is full, call it 99%
             for (int i = 0; i < lContainers.Count; i++)
             {
-                totalMax += cargoCapacity(lContainers[i]);
+                //                totalMax += cargoCapacity(lContainers[i]);
+                double capacity = -1;
+
+                var count = lContainers[i].InventoryCount;
+                for (var invcount = 0; invcount < count; invcount++)
+                {
+                    var inv = lContainers[i].GetInventory(invcount);
+
+                    if (inv != null) // null means, no items in inventory.
+                    {
+                        totalCurrentVolume += (double)inv.CurrentVolume;
+
+                        if ((double)inv.MaxVolume > 9223372036854)
+                        {
+                            bCreative = true;
+                        }
+                        else
+                        {
+                            bCreative = false;
+                        }
+
+                        if (!bCreative)
+                        {
+                            //Echo("NCreateive");
+                            capacity = (double)inv.MaxVolume;
+                            double dCapacity = defaultCapacity(lContainers[i]);
+                            if (dCapacity > 0) cargoMult = capacity / dCapacity;
+                            //					Echo("lContainers="+theContainer.DefinitionDisplayNameText+"'"+inv.MaxVolume.ToString());
+                        }
+                        else
+                        {
+                            capacity = defaultCapacity(lContainers[i]) * 10;
+                            cargoMult = 9999;
+                        }
+
+                        if ((double)inv.CurrentVolume < capacity)
+                        {
+                            // there is room
+                            if (!(lContainers[i] is IMyShipDrill))
+                            {
+                                bCargoFull = false;
+                            }
+
+                        }
+
+                        else //if ((double)inv.CurrentVolume + 5 > capacity)
+                        {
+                            // we are full
+                            if (lContainers[i] is IMyShipDrill)
+                            {
+                                bDrillFull = true;
+                            }
+                        }
+
+                    }
+                    totalMax += capacity;
+                }
+                //	Echo("cargoCapacity=" + capacity.ToString());
+
             }
             //	Echo("totalMax=" + totalMax.ToString("0.00"));
             if (totalMax > 0)
             {
-                ratio = (totalCurrent / totalMax) * 100;
+                ratio = (totalCurrentVolume / totalMax) * 100;
             }
             else
             {
@@ -97,6 +248,9 @@ namespace IngameScript
             //Echo("ratio="+ratio.ToString());
             cargopcent = (int)ratio;
 
+            // if any drill is full and ALL cargo are full, call it 100%
+            if (bCargoFull && bDrillFull)
+                cargopcent = 101;
         }
 
         double cargoCapacity(IMyTerminalBlock theContainer)
@@ -106,11 +260,11 @@ namespace IngameScript
             var count = theContainer.InventoryCount;
             for (var invcount = 0; invcount < count; invcount++)
             {
-                IMyInventory inv = theContainer.GetInventory(invcount);
+                var inv = theContainer.GetInventory(invcount);
 
                 if (inv != null) // null means, no items in inventory.
                 {
-                    totalCurrent += (double)inv.CurrentVolume;
+                    totalCurrentVolume += (double)inv.CurrentVolume;
 
                     if ((double)inv.MaxVolume > 9223372036854)
                     {
@@ -142,7 +296,7 @@ namespace IngameScript
 
         double defaultCapacity(IMyTerminalBlock theContainer)
         {
-            IMyInventory inv = theContainer.GetInventory(0);
+            var inv = theContainer.GetInventory(0);
 
             string subtype = theContainer.BlockDefinition.SubtypeId;
 
@@ -183,16 +337,12 @@ namespace IngameScript
             else if (subtype.Contains("SmallShipGrinder")) capacity = 3.375;
             else
             {
-                Echo("Not cargo:" + theContainer.DefinitionDisplayNameText + ":" + theContainer.BlockDefinition.SubtypeId);
-                capacity = 0.125;
+                Echo("Unknown cargo for default Capacity:" + theContainer.DefinitionDisplayNameText + ":" + theContainer.BlockDefinition.SubtypeId);
+                capacity = 12;
             }
             return capacity;
 
         }
-
-
-        #endregion
-
 
     }
 }

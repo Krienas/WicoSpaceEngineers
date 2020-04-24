@@ -14,44 +14,51 @@ using VRage.Game.ObjectBuilders.Definitions;
 using VRage.Game;
 using VRageMath;
 
-//          <Editable>true</Editable>
-
 namespace IngameScript
 {
     partial class Program : MyGridProgram
     {
-        string OurName = "Wico Craft";
-        string moduleName = "MINER";
-        string sVersion = "3.1B";
-
-        const string sGPSCenter = "Craft Remote Control";
-
-        Vector3I iForward = new Vector3I(0, 0, 0);
-        Vector3I iUp = new Vector3I(0, 0, 0);
-        Vector3I iLeft = new Vector3I(0, 0, 0);
-        Vector3D currentPosition;
         const string velocityFormat = "0.00";
-
-        IMyTerminalBlock anchorPosition;
-        IMyTerminalBlock gpsCenter = null;
-//        Vector3D vCurrentPos;
-        //IMyTerminalBlock gpsCenter = null;
-        class OurException : Exception
-        {
-            public OurException(string msg) : base("WicoMinerModule" + ": " + msg) { }
-        }
-
-
 
         void ResetMotion(bool bNoDrills = false)  
         { 
 	        powerDownThrusters(thrustAllList);
             gyrosOff();
-	        if (gpsCenter is IMyRemoteControl) ((IMyRemoteControl)gpsCenter).SetAutoPilotEnabled(false);
-	        if (gpsCenter is IMyShipController) ((IMyShipController)gpsCenter).DampenersOverride = true;
+	        if (shipOrientationBlock is IMyRemoteControl) ((IMyRemoteControl)shipOrientationBlock).SetAutoPilotEnabled(false);
+	        if (shipOrientationBlock is IMyShipController) ((IMyShipController)shipOrientationBlock).DampenersOverride = true;
             if(!bNoDrills) turnDrillsOff();
 
-        } 
+        }
+        void MasterReset()
+        {
+            ResetMotion();
 
+            iniWicoCraftSave.ParseINI("");
+            MinerMasterReset();
+            ProcessInitCustomData();
+
+            Serialize();
+            init = false;
+            bWantFast = true;
+        }
+
+        void ModuleSerialize(INIHolder iNIHolder)
+        {
+            MiningSerialize(iNIHolder);
+            initAsteroidsInfo();
+            initOreLocInfo();
+            ScansSerialize(iNIHolder);
+            NavSerialize(iNIHolder);
+            DockedSerialize(iNIHolder);
+        }
+        void ModuleDeserialize(INIHolder iNIHolder)
+        {
+            MiningDeserialize(iNIHolder);
+            AsteroidsDeserialize();
+            OreDeserialize();
+            ScansDeserialize(iNIHolder);
+            NavDeserialize(iNIHolder);
+            DockedDeserialize(iNIHolder);
+        }
     }
 }

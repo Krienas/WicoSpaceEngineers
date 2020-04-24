@@ -39,7 +39,8 @@ namespace IngameScript
             public const Base6Directions.Direction Down = Base6Directions.Direction.Down;
 
             public float MaxYPR = 30.0f;
-            public List<IMyTerminalBlock> Gyros = new List<IMyTerminalBlock>();
+//            public List<IMyTerminalBlock> Gyros = new List<IMyTerminalBlock>();
+            public List<IMyGyro> Gyros = new List<IMyGyro>();
 
             Base6Directions.Direction YawAxisDir = Up;
             Base6Directions.Direction PitchAxisDir = Left;
@@ -53,17 +54,22 @@ namespace IngameScript
             //to pass your list of gyros to control...  
             public void UpdateGyroList(List<IMyTerminalBlock> GyroList)
             {
-                Gyros = GyroList;
+                Gyros = GyroList.ConvertAll(x => (IMyGyro)x);
+
+//                Gyros = GyroList;
                 if (Gyros.Count > 0) MaxYPR = Gyros[0].GetMaximum<float>("Yaw");
             }
             public void UpdateGyroList(List<IMyGyro> GyroList)
             {
                 Gyros.Clear();
                 if (GyroList == null) return;
+                Gyros = GyroList;
+                /*
                 for (int i = 0; i < GyroList.Count; i++)
                 {
                     Gyros.Add((GyroList[i] as IMyTerminalBlock));//  ;
                 }
+                */
                 if (Gyros.Count > 0) MaxYPR = Gyros[0].GetMaximum<float>("Yaw");
             }
 
@@ -104,7 +110,8 @@ namespace IngameScript
             {
                 for (int i = 0; i < Gyros.Count; i++)
                 {
-                    Gyros[i].SetValueBool("Override", value);
+                    Gyros[i].GyroOverride = value;
+//                    Gyros[i].SetValueBool("Override", value);
                 }
             }
 
@@ -112,7 +119,7 @@ namespace IngameScript
             {
                 if (gyro < Gyros.Count)
                 {
-                    Gyros[gyro].SetValueBool("Override", value);
+                    Gyros[gyro].GyroOverride = value;
 //                    Gyros[gyro].SetValueBool("Override", value);
                 }
             }
@@ -121,7 +128,9 @@ namespace IngameScript
             {
                 for (int i = 0; i < Gyros.Count; i++)
                 {
-                    Gyros[i].SetValueFloat("Power", power);
+
+                    Gyros[i].GyroPower = power;
+//                    Gyros[i].SetValueFloat("Power", power);
                 }
             }
 
@@ -129,7 +138,8 @@ namespace IngameScript
             {
                 if (gyro < Gyros.Count)
                 {
-                    Gyros[gyro].SetValueFloat("Power", power);
+                    Gyros[gyro].GyroPower = power;
+//                    Gyros[gyro].SetValueFloat("Power", power);
                 }
             }
 
@@ -137,7 +147,7 @@ namespace IngameScript
             {
                 for (int i = 0; i < Gyros.Count; i++)
                 {
-                    (Gyros[i] as IMyGyro).Enabled = enable;
+                    Gyros[i].Enabled = enable;
                 }
             }
 
@@ -145,7 +155,8 @@ namespace IngameScript
             {
                 if (gyro < Gyros.Count)
                 {
-                    (Gyros[gyro] as IMyGyro).Enabled = enable;
+                    Gyros[gyro].Enabled = enable;
+//                    (Gyros[gyro] as IMyGyro).Enabled = enable;
                 }
             }
 
@@ -153,7 +164,8 @@ namespace IngameScript
             {
                 for (int i = 0; i < Gyros.Count; i++)
                 {
-                    Gyros[i].SetValueBool("ShowOnHUD", show);
+                    Gyros[i].ShowOnHUD = show;
+//                    Gyros[i].SetValueBool("ShowOnHUD", show);
                 }
             }
 
@@ -161,7 +173,8 @@ namespace IngameScript
             {
                 if (gyro < Gyros.Count)
                 {
-                    Gyros[gyro].SetValueBool("ShowOnHUD", show);
+                    Gyros[gyro].ShowOnHUD = show;
+//                    Gyros[gyro].SetValueBool("ShowOnHUD", show);
                 }
             }
 
@@ -185,6 +198,24 @@ namespace IngameScript
                 }
             }
 
+            public void SetAxis(IMyGyro gyro,string Axis, float value)
+            {
+                if (Axis == "Yaw")
+                {
+                   gyro.Yaw = value;
+                }
+                else if (Axis == "Pitch")
+                {
+                    gyro.Pitch = value;
+
+                }
+                else //roll
+                {
+                    gyro.Roll = value;
+                }
+
+            }
+
             public void SetYaw(float yaw)
             {
                 for (int i = 0; i < Gyros.Count; i++)
@@ -195,8 +226,10 @@ namespace IngameScript
                     Vector3.TransformNormal(ref RotatedVector, Gyros[i].Orientation, out RotatedVector);
                     YawAxisDir = Base6Directions.GetDirection(ref RotatedVector);
                     GetAxisAndDir(RefUp, out Axis, out sign);
-//                    Echo("Set axis=" + Azis + " yaw="+yaw.ToString("0.00")+" sign=" + sign);
-                    Gyros[i].SetValueFloat(Axis, sign * yaw);
+                    //                    Echo("Set axis=" + Azis + " yaw="+yaw.ToString("0.00")+" sign=" + sign);
+
+                    SetAxis(Gyros[i], Axis, sign * yaw);
+                    //                    Gyros[i].SetValueFloat(Axis, sign * yaw);
                 }
             }
 
@@ -210,7 +243,8 @@ namespace IngameScript
                     Vector3.TransformNormal(ref RotatedVector, Gyros[i].Orientation, out RotatedVector);
                     PitchAxisDir = Base6Directions.GetDirection(ref RotatedVector);
                     GetAxisAndDir(RefLeft, out Axis, out sign);
-                    Gyros[i].SetValueFloat(Axis, sign * pitch);
+                    SetAxis(Gyros[i], Axis, sign * pitch);
+//                    Gyros[i].SetValueFloat(Axis, sign * pitch);
                 }
             }
 
@@ -224,7 +258,8 @@ namespace IngameScript
                     Vector3.TransformNormal(ref RotatedVector, Gyros[i].Orientation, out RotatedVector);
                     RollAxisDir = Base6Directions.GetDirection(ref RotatedVector);
                     GetAxisAndDir(RefForward, out Axis, out sign);
-                    Gyros[i].SetValueFloat(Axis, sign * roll);
+                    SetAxis(Gyros[i], Axis, sign * roll);
+//                    Gyros[i].SetValueFloat(Axis, sign * roll);
                 }
             }
 
@@ -244,11 +279,16 @@ namespace IngameScript
                     Vector3.TransformNormal(ref RotatedVector, Gyros[i].Orientation, out RotatedVector);
                     YawAxisDir = Base6Directions.GetDirection(ref RotatedVector);
                     GetAxisAndDir(RefUp, out Axis, out sign);
-                    Gyros[i].SetValueFloat(Axis, sign * yaw);
+                    SetAxis(Gyros[i], Axis, sign * yaw);
+//                    Gyros[i].SetValueFloat(Axis, sign * yaw);
+
                     GetAxisAndDir(RefLeft, out Axis, out sign);
-                    Gyros[i].SetValueFloat(Axis, sign * pitch);
+                    SetAxis(Gyros[i], Axis, sign * pitch);
+//                    Gyros[i].SetValueFloat(Axis, sign * pitch);
+
                     GetAxisAndDir(RefForward, out Axis, out sign);
-                    Gyros[i].SetValueFloat(Axis, sign * roll);
+                    SetAxis(Gyros[i], Axis, sign * roll);
+//                    Gyros[i].SetValueFloat(Axis, sign * roll);
                 }
             }
         }
@@ -298,7 +338,7 @@ namespace IngameScript
             facingTarget = centerTargetDistance < backTargetDistance;
 
             yawAngle = (leftTargetDistance - rightTargetDistance) / yawLocalDistance;
-            Echo("calc Angle=" + Math.Round(yawAngle, 5));
+//            Echo("calc Angle=" + Math.Round(yawAngle, 5));
 
             if (!facingTarget)
             {
@@ -322,12 +362,21 @@ namespace IngameScript
         { Matrix blk2grid; blk.Orientation.GetMatrix(out blk2grid); return blk2grid * MatrixD.CreateTranslation(((Vector3D)new Vector3D(blk.Min + blk.Max)) / 2.0) * GetGrid2WorldTransform(blk.CubeGrid); }
         #endregion
 
-        bool DoRotate(double rollAngle, string sPlane = "Roll", float maxYPR=-1)
+        bool DoRotate(double rollAngle, string sPlane = "Roll", float maxYPR=-1, float facingFactor=1f)
         {
 //            Echo("DR:angle=" + rollAngle.ToString("0.00"));
-            float targetRoll = 0;
-            IMyGyro gyro = gyros[0] as IMyGyro;
-            float maxRoll = gyro.GetMaximum<float>(sPlane);
+            float targetNewSetting = 0;
+
+            if(GyroControl.Gyros.Count<1) Echo("NO GYROS!!!");
+
+            //            float maxRoll = (float)(2 * Math.PI);  this SHOULD be the new constant.. but code must use old constant
+            // TODO: this constant is no longer reasonable..  The adjustments are just magic calculations and should be redone.
+            float maxRoll = 60f;
+
+ //                       IMyGyro gyro = gyros[0] as IMyGyro;
+ //           float maxRoll = gyro.GetMaximum<float>(sPlane);
+//            Echo("MAXROLL=" + maxRoll);
+
             if (maxYPR > 0) maxRoll = maxYPR;
 
             //           float minRoll = gyro.GetMinimum<float>(sPlane);
@@ -335,39 +384,40 @@ namespace IngameScript
             if (Math.Abs(rollAngle) > 1.0)
             {
 //                Echo("MAx gyro");
-                targetRoll = (float)maxRoll * (float)(rollAngle);
+                targetNewSetting = maxRoll * (float)(rollAngle) * facingFactor;
             }
             else if (Math.Abs(rollAngle) > .7)
             {
                 // need to dampen 
 //                 Echo(".7 gyro");
-               targetRoll = (float)maxRoll * (float)(rollAngle) / 4;
+               targetNewSetting = maxRoll * (float)(rollAngle) / 4;
             }
             else if (Math.Abs(rollAngle) > 0.5)
             {
 //                 Echo(".5 gyro");
-                targetRoll = 0.11f * Math.Sign(rollAngle);
+                targetNewSetting = 0.11f * Math.Sign(rollAngle);
             }
             else if (Math.Abs(rollAngle) > 0.1)
             {
 //                 Echo(".1 gyro");
-                targetRoll = 0.11f * Math.Sign(rollAngle);
+                targetNewSetting = 0.11f * Math.Sign(rollAngle);
             }
             else if (Math.Abs(rollAngle) > 0.01)
             {
 //                 Echo(".01 gyro");
-                targetRoll = 0.11f * Math.Sign(rollAngle);
+                targetNewSetting = 0.11f * Math.Sign(rollAngle);
             }
             else if (Math.Abs(rollAngle) > 0.001)
             {
 //                 Echo(".001 gyro");
-                targetRoll = 0.09f * Math.Sign(rollAngle);
+                targetNewSetting = 0.09f * Math.Sign(rollAngle);
             }
-            else targetRoll = 0;
+            else targetNewSetting = 0;
 
-            GyroControl.SetYaw(targetRoll);
+            GyroControl.SetYaw(targetNewSetting);
             if (Math.Abs(rollAngle) < minAngleRad)
             {
+                Echo("DR():Aimed");
                 GyroControl.SetOverride(false);
 //                GyroControl.RequestEnable(true);
             }

@@ -20,12 +20,9 @@ namespace IngameScript
     {
 
 
-
-        #region arguments
-
         bool moduleProcessArguments(string sArgument)
         {
-            sArgResults = "";
+//            sArgResults = "";
             // string output="";
             if (sArgument == "" || sArgument == "timer" || sArgument == "wccs" || sArgument == "wcct")
             {
@@ -68,14 +65,21 @@ namespace IngameScript
                     Echo("invalid float value:" + args[1]);
                     return false;
                 }
-                fMaxMps = fValue;
-                sArgResults = "max speed set to " + fMaxMps.ToString() + "mps";
+                fMaxWorldMps = fValue;
+ //               sArgResults = "max speed set to " + fMaxWorldMps.ToString() + "mps";
 
+            }
+            else if (args[0] == "autogyro")
+            {
+                if ((craft_operation & CRAFT_MODE_NOAUTOGYRO) > 0)
+                    craft_operation &= ~CRAFT_MODE_NOAUTOGYRO;
+                else
+                    craft_operation |= CRAFT_MODE_NOAUTOGYRO;
             }
             else if (args[0] == "resetlaunch")
             {
-                bValidHome = false;
-                bValidLaunch1 = false;
+                bValidOrbitalHome = false;
+                bValidOrbitalLaunch = false;
             }
             else if (args[0] == "wccs")
             {
@@ -90,18 +94,18 @@ namespace IngameScript
                 int iDMode;
                 if (modeCommands.TryGetValue(args[0].ToLower(), out iDMode))
                 {
-                    sArgResults = "mode set to " + iDMode;
+//                    sArgResults = "mode set to " + iDMode;
                     setMode(iDMode);
                     // return true;
                 }
                 else
                 {
-                    sArgResults = "Unknown argument:" + args[0];
+//                    sArgResults = "Unknown argument:" + args[0];
                 }
             }
             return false; // keep processing in main
         }
-        #endregion
+
         bool moduleProcessAntennaMessage(string sArgument)
         {
             // we directly received an antenna message

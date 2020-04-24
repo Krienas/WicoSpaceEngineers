@@ -19,12 +19,14 @@ namespace IngameScript
     partial class Program : MyGridProgram
     {
 
+        string sArgResults = "";
 
 
         // mult-arg
         #region arguments
         bool moduleProcessArguments(string sArgument)
         {
+            if (bDebugUpdate) Echo("moduleProcessArguments("+sArgument+")");
             sArgResults = "";
             // string output="";
             if (sArgument == "" || sArgument == "timer" || sArgument == "wccs" || sArgument == "wcct")
@@ -35,6 +37,27 @@ namespace IngameScript
                 {
                     //			Echo("Using Passed Arg=" + sPassedArgument);
                     sArgument = sPassedArgument;
+                }
+                // SPECIAL to emulate old Nav
+                if (NAVEmulateOld)
+                {
+                    if (bDebugUpdate) Echo("NAVEmulateOld");
+
+                    var tList = GetBlocksContains<IMyTerminalBlock>("NAV:");
+                    for (int i1 = 0; i1 < tList.Count(); i1++)
+                    {
+                        // don't want to get blocks that have "NAV:" in customdata..
+                        if (tList[i1].CustomName.StartsWith("NAV:"))
+                        {
+                            Echo("Found NAV: command:");
+                            // remove NAV: from start.
+                            sArgument = tList[i1].CustomName.Substring("NAV:".Length);
+                            tList[i1].CustomName = sArgument; // remove the NAV: so we don't keep processing
+
+                            sStartupError += "Found OLDNAV:\n" + sArgument;
+                            break;
+                        }
+                    }
                 }
             }
 
@@ -48,6 +71,8 @@ namespace IngameScript
             }
 
             string[] varArgs = sArgument.Trim().Split(';');
+
+            bool bFoundNAVCommands = false;
 
             for (int iArg = 0; iArg < varArgs.Length; iArg++)
             {
@@ -67,8 +92,9 @@ namespace IngameScript
                 }
                 else if (args[0] == "W" || args[0] == "O")
                 { // [W|O] <x>:<y>:<z>  || W <x>,<y>,<z>
-                    // W GPS:Wicorel #1:53970.01:128270.31:-123354.92:
+                  // W GPS:Wicorel #1:53970.01:128270.31:-123354.92:
                   // O means orient towards.  W means orient, then move to
+                    bFoundNAVCommands = true;
                     Echo("Args:");
                     for (int icoord = 0; icoord < args.Length; icoord++)
                         Echo(args[icoord]);
@@ -87,13 +113,13 @@ namespace IngameScript
                         sArg = sArg.Trim();
                     }
 
-                    Echo("sArg=\n'" + sArg+"'");
+//                    Echo("sArg=\n'" + sArg+"'");
                     string[] coordinates = sArg.Split(',');
                     if (coordinates.Length < 3)
                     {
                         coordinates = sArg.Split(':');
                     }
-                    Echo(coordinates.Length + " Coordinates");
+//                    Echo(coordinates.Length + " Coordinates");
                     for (int icoord = 0; icoord < coordinates.Length; icoord++)
                         Echo(coordinates[icoord]);
                     //Echo("coordiantes.Length="+coordinates.Length);  
@@ -123,6 +149,8 @@ namespace IngameScript
                             return false;
                         }
                     }
+                    // ELSE: W X:Y:Z
+
                         
                     double x, y, z;
                     bool xOk = double.TryParse(coordinates[iCoordinate++].Trim(), out x);
@@ -135,17 +163,28 @@ namespace IngameScript
                         //			shutdown(gyroList);
                         continue;
                     }
-                    vHome = new Vector3D(x, y, z);
-                    bValidHome = true;
-                    if (args[0] == "W")
-                        bGoOption = true;
-                    else bGoOption = false;
 
-                    setMode(MODE_GOINGTARGET);
+//                    sStartupError = "CMD Initiated NAV:\n" + sArgument;
+
+                    //                    vNavTarget = new Vector3D(x, y, z);
+                    //                    bValidNavTarget = true;
+                    if (args[0] == "W")
+                    {
+                        _NavAddTarget(new Vector3D(x, y, z), MODE_NAVNEXTTARGET, 0, arrivalDistanceMin, sWaypointName, shipSpeedMax);
+//                        bGoOption = true;
+                    }
+                    else
+                    {
+                        _NavAddTarget(new Vector3D(x, y, z), MODE_NAVNEXTTARGET, 0, arrivalDistanceMin, sWaypointName, shipSpeedMax, false);
+//                        bGoOption = false;
+                    }
+//                    sStartupError += "\nW " + sWaypointName + ":" + wicoNavCommands.Count.ToString();
+                    //                   setMode(MODE_GOINGTARGET);
 
                 }
                 else if (args[0] == "S")
                 { // S <mps>
+                    // TODO: Queue the command into NavCommands
                     if (args.Length < 1)
                     {
                         Echo("Invalid Command:(" + varArgs[iArg] + ")");
@@ -156,7 +195,7 @@ namespace IngameScript
                     if (xOk)
                     {
                         shipSpeedMax = x;
-                        Echo("Set speed to:" + shipSpeedMax.ToString("0.00"));
+//                        Echo("Set speed to:" + shipSpeedMax.ToString("0.00"));
                         //             setMode(MODE_ARRIVEDTARGET);
                     }
                     else
@@ -168,6 +207,7 @@ namespace IngameScript
                 }
                 else if (args[0] == "D")
                 { // D <meters>
+                    // TODO: Queue the command into NavCommands
                     if (args.Length < 1)
                     {
                         Echo("Invalid Command:(" + varArgs[iArg] + ")");
@@ -178,7 +218,7 @@ namespace IngameScript
                     if (xOk)
                     {
                         arrivalDistanceMin = x;
-                        Echo("Set arrival distance to:" + arrivalDistanceMin.ToString("0.00"));
+//                        Echo("Set arrival distance to:" + arrivalDistanceMin.ToString("0.00"));
                     }
 
                     else
@@ -199,6 +239,32 @@ namespace IngameScript
                         Echo(varArgs[iArg]);
                     }
                 }
+                else if (args[0] == "L")
+                { // L launch
+                    bFoundNAVCommands = true;
+                    _NavQueueLaunch();
+                }
+                else if (args[0] == "launch")
+                { // L launch
+                    bFoundNAVCommands = true;
+                    _NavQueueLaunch();
+                }
+                else if (args[0] == "OL")
+                { // OL Orbital launch
+                    bFoundNAVCommands = true;
+                    _NavQueueOrbitalLaunch();
+                }
+                else if (args[0] == "orbitallaunch")
+                { // OL Orbital launch
+                    bFoundNAVCommands = true;
+                    _NavQueueOrbitalLaunch();
+                }
+                else if (args[0] == "dock")
+                { // dock
+                    bFoundNAVCommands = true;
+                    _NavQueueOrbitalLaunch();
+                }
+                // todo: add launch, dock, land, etc
                 else
                 {
                     int iDMode;
@@ -214,10 +280,20 @@ namespace IngameScript
                     }
                 }
             }
+            if(bFoundNAVCommands)
+            {
+//                sStartupError += "\nFound NAV Commands:" + wicoNavCommands.Count.ToString();
+                _NavStart();
+            }
             return false; // keep processing in main
         }
         #endregion
         bool moduleProcessAntennaMessage(string sArgument)
+        {
+            return false;
+        }
+
+        bool moduleProcessIGCMessage(string sArgument)
         {
             return false;
         }

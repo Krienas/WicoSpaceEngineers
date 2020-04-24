@@ -21,12 +21,12 @@ namespace IngameScript
 
         bool moduleProcessArguments(string sArgument)
         {
-            sArgResults = "";
+//            sArgResults = "";
             // string output="";
             if (sArgument == "" || sArgument == "timer" || sArgument == "wccs" || sArgument == "wcct")
             {
-                Echo("Arg=" + sArgument);
-                Echo("PassedArg=" + sPassedArgument);
+//                Echo("Arg=" + sArgument);
+//                Echo("PassedArg=" + sPassedArgument);
                 if (sPassedArgument != "" && sPassedArgument != "timer")
                 {
                     Echo("Using Passed Arg=" + sPassedArgument);
@@ -66,13 +66,13 @@ namespace IngameScript
                 int iDMode;
                 if (modeCommands.TryGetValue(args[0].ToLower(), out iDMode))
                 {
-                    sArgResults = "mode set to " + iDMode;
+//                    sArgResults = "mode set to " + iDMode;
                     setMode(iDMode);
                     // return true;
                 }
                 else
                 {
-                    sArgResults = "Unknown argument:" + args[0];
+//                    sArgResults = "Unknown argument:" + args[0];
                 }
             }
             return false; // keep processing in main
@@ -84,6 +84,11 @@ namespace IngameScript
             return false;
         }
 
+        bool moduleProcessIGCMessage(string sArgument)
+        {
+            BaseProcessIGCMessage();
+            return false;
+        }
 
     }
 }

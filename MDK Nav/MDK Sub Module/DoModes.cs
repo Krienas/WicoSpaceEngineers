@@ -21,19 +21,27 @@ namespace IngameScript
         #region domodes 
         void doModes()
         {
-            Echo("mode=" + iMode.ToString());
-/*            if (AnyConnectorIsConnected() && !((craft_operation & CRAFT_MODE_ORBITAL) > 0))
-            {
-                Echo("DM:docked");
-                setMode(MODE_DOCKED);
-            }
-            */
+            Echo("mode=" + iMode.ToString() + " state=" + current_state.ToString());
+            /*            if (AnyConnectorIsConnected() && !((craft_operation & CRAFT_MODE_ORBITAL) > 0))
+                        {
+                            Echo("DM:docked");
+                            setMode(MODE_DOCKED);
+                        }
+                        */
             /*
             if (iMode == MODE_IDLE) doModeIdle();
             else if (iMode == MODE_DESCENT) doModeDescent();
 */
 
-        	if (iMode == MODE_GOINGTARGET) { doModeGoTarget(); return; } 
+            // todo. on IDLE or reset, remove all nav commands
+            Echo("Commands=" + wicoNavCommands.Count.ToString());
+            if (wicoNavCommands.Count > 0)
+                Echo("Next=" + wicoNavCommands[0].NAVTargetName);
+
+            if (iMode == MODE_GOINGTARGET) { doModeGoTarget(); return; }
+            if (iMode == MODE_STARTNAV) { doModeStartNav(); return; }
+            if (iMode == MODE_NAVNEXTTARGET) { doModeNavNext(); return; } 
+            if(iMode==MODE_SCANTEST) { doModeScanTest(); return; }
        }
         #endregion
 

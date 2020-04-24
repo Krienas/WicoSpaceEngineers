@@ -37,49 +37,43 @@ namespace IngameScript
         state
         0 master inint
         100 init antenna power
-        101 wait for slow speed
+        110 wait for slow speed
           choose base.  Send request.
-        102 wait for reply from base
-        105  timeout while wiating for a reply from a base; try to move closer to base ->101
-        106 collision calc from 105
-        107 collision avoid from 106 ->101
+        120 wait for reply from base
+        125  timeout while waiting for a reply from a base; try to move closer to base ->110
+        130 No known bases.  wait for reply
 
-        109 No known bases.  wait for reply
-
-        //antSend("WICO:CON?:" + base.baseID, +":"+ "mini"+ ":"+ gpsCenter.CubeGrid.CustomName+":"+SaveFile.EntityId.ToString()+":"+Vector3DToString(gpsCenter.GetPosition() +
+        //antSend("WICO:CON?:" + base.baseID, +":"+ "mini"+ ":"+ shipOrientationBlock.CubeGrid.CustomName+":"+SaveFile.EntityId.ToString()+":"+Vector3DToString(shipOrientationBlock.GetPosition() +
 
         Use other connector position and vector for docking
-        110	Move to 'wait' location (or current location) ?request 'wait' location? ->115 or ->120
-
-        111 calc colision avoid moving to 'mom'
-        112 do travel to avoid collision moving to mom
-
+        150	Move to 'wait' location (or current location) ?request 'wait' location? ->175 or ->200
         
-        115 do travel to 'mom' location (range 4500) ->120
+        175 do travel to 'base' location  ->200
 
-        120	request available docking connector
+        200	request available docking connector
 
-        130	settime-out
-        131 wait for available
-        140	when available, calculate approach locations
-        150  Start:	Move through locations
+        210 wait for available
+        250	when available, calculate approach locations
+        300  Start:	Move through locations
         'Back' Connector:
-        160 move to launch1
-        161 collision detected.
-        162 do travel for collision avoid ->160 Coll2->163
-        163 secondary collision if asteroid ->164 else ->161
-        164 init escape from inside asteroid/ship
-        165 check for escape route when found ->162
+        310 NAV move to Home Arrive->340
 
-
-        169 Delay for motion before 170
-        170 align to docking alignment
-        171 align to dock
-        172 align to docking alignment
-        173 'reverse' to dock, aiming connector at target connector
+        340 Delay for motion
+        350 slow move rest of way to Home. Arrival->400
+        400 NAV move to Launch1
+        410 slow move rest of way to Launch1 Arrival->430
+        430 Arrived @Launch1 ->450 Reset docking distance check (future checks)
+        450, 452 align to dock
+            Aligned ->451 If no align, directly->500
+        451 align to docking alignment align to dock 
+            ->452
+        500 'reverse' to dock, aiming our connector at target connector
                 supports 'back' connector
-                TODO: support 'forward' connector
-                TODO: support 'down' connector (kneeling required for wheeled vehicles?)
+                supports 'down' connector (kneeling required for wheeled vehicles?)
+                supports 'forward' connector
+
+                if error with align, etc, ->590
+         590 abort dock.  Move away and try again.
 
         Always:	Lock connector iMode->MODE_DOCKED
             */
@@ -87,12 +81,9 @@ namespace IngameScript
         DockableConnector targetConnector = new DockableConnector();
         IMyTerminalBlock dockingConnector;
 
-        int iPushCount = 0;
+        //int iDockingPushCount = 0;
 
-        Vector3D vDockAlign;
-        bool bDoDockAlign = false;
-
-        int iTargetBase = -1;
+        double dockingLastDistance = -1;
 
         List<IMyTerminalBlock> thrustDockBackwardList = new List<IMyTerminalBlock>();
         List<IMyTerminalBlock> thrustDockForwardList = new List<IMyTerminalBlock>();
@@ -101,14 +92,20 @@ namespace IngameScript
         List<IMyTerminalBlock> thrustDockUpList = new List<IMyTerminalBlock>();
         List<IMyTerminalBlock> thrustDockDownList = new List<IMyTerminalBlock>();
 
+        IMyBroadcastListener _CONAIGCChannel;
+        IMyBroadcastListener _CONDIGCChannel;
+        IMyBroadcastListener _ACONDIGCChannel;
+
         void doModeDocking()
         {
             StatusLog("clear", textPanelReport);
             StatusLog(moduleName + ":DOCKING!", textPanelReport);
-            StatusLog(moduleName + ":Docking: current_state=" + current_state, textPanelReport);
-            StatusLog(moduleName + ":Docking: current_state=" + current_state, textLongStatus, true);
-            bWantFast = true;
+//            StatusLog(moduleName + ":Docking: current_state=" + current_state, textPanelReport);
+//            StatusLog(moduleName + ":Docking: current_state=" + current_state, textLongStatus, true);
+ //           bWantFast = true;
             Echo("DOCKING: state=" + current_state);
+
+            bWantSlow = true;
 
             IMySensorBlock sb;
 
@@ -124,12 +121,23 @@ namespace IngameScript
                     setMode(MODE_DOCKED);
                     return;
                 }
+
+                // these will replace any existing channel
+                _CONDIGCChannel = IGC.RegisterBroadcastListener("COND"); // What it listens for
+                _CONDIGCChannel.SetMessageCallback("COND"); // What it will run the PB with once it has a message
+                _ACONDIGCChannel = IGC.RegisterBroadcastListener("ACOND"); // What it listens for
+                _ACONDIGCChannel.SetMessageCallback("ACOND"); // What it will run the PB with once it has a message
+                _CONAIGCChannel = IGC.RegisterBroadcastListener("CONA"); // What it listens for
+                _CONAIGCChannel.SetMessageCallback("CONA"); // What it will run the PB with once it has a message
+
+                doSubModuleTimerTriggers("[DOCKING]");
                 dockingConnector = getDockingConnector();
                 if (dockingConnector == null)// || getAvailableRemoteConnector(out targetConnector))
                 {
                     Echo("No local connector for docking");
                     StatusLog(moduleName + ":No local Docking Connector Available!", textLongStatus, true);
                     // we could check for merge blocks.. or landing gears..
+                    sStartupError += "\nNo local Docking Connector Available!";
                     setMode(MODE_ATTENTION);
                     bWantFast = false;
                     return;
@@ -144,7 +152,7 @@ namespace IngameScript
                         ref thrustDockLeftList, ref thrustDockRightList);
                     current_state = 100;
                 }
-                iTargetBase = -1;
+                lTargetBase = 0;// iTargetBase = -1;
             }
             Vector3D vPos = dockingConnector.GetPosition();
             if (!AnyConnectorIsConnected() && AnyConnectorIsLocked())
@@ -157,23 +165,26 @@ namespace IngameScript
             }
             if (current_state == 100)
             {
+                // TODO: allow for relay ships that are NOT bases..
+                // TODO: if memory docking, don't need to adjust antenna
+                // TODO: if stealth mode, don't mess with antenna
                 float range = RangeToNearestBase() + 100f + (float)velocityShip * 5f;
-                antennaMaxPower(false,range);
+                antennaMaxPower(false, range);
                 if (sensorsList.Count > 0)
                 {
                     sb = sensorsList[0];
                     //			setSensorShip(sb, 1, 1, 1, 1, 50, 1);
                 }
-                current_state = 101;
+                current_state = 110;
             }
-            else if (current_state == 101)
+            else if (current_state == 110)
             { // wait for slow
                 if (velocityShip < 10)
                 {
-                    if (iTargetBase < 0) iTargetBase = findBestBase();
-                    //                    sInitResults += "101: Base=" + iTargetBase;
-                   dtStartShip = DateTime.Now;
-                   if (iTargetBase >= 0)
+                    if (lTargetBase <= 0) lTargetBase = BaseFindBest();
+                    //                    sInitResults += "110: Base=" + iTargetBase;
+                    dtDockingActionStart = DateTime.Now;
+                    if (lTargetBase > 0)
                     {
                         calculateGridBBPosition(dockingConnector);
                         Vector3D[] points = new Vector3D[4];
@@ -185,47 +196,56 @@ namespace IngameScript
                         // face 0=right output order is  BL, TL, BR, TR ???
                         double length = (points[0] - points[2]).Length();
 
-                        string sMessage = "WICO:CON?:";
-                        sMessage += baseIdOf(iTargetBase).ToString() + ":";
+                        string sMessage="";// = "WICO:CON?:";
+                        string sTag = "CON?";
+                        sMessage += lTargetBase.ToString() + ":";
+                        //$"{height:N1},{width:N1},{length:N1}:";
                         sMessage += height.ToString("0.0") + "," + width.ToString("0.0") + "," + length.ToString("0.0") + ":";
                         //                    sMessage += shipDim.HeightInMeters() + "," + shipDim.WidthInMeters() + "," + shipDim.LengthInMeters() + ":";
-                        sMessage += gpsCenter.CubeGrid.CustomName + ":";
+                        sMessage += shipOrientationBlock.CubeGrid.CustomName + ":";
                         sMessage += SaveFile.EntityId.ToString() + ":";
-                        sMessage += Vector3DToString(gpsCenter.GetPosition());
-                        antSend(sMessage);
-//                        antSend("WICO:CON?:" + baseIdOf(iTargetBase).ToString() + ":" + "mini" + ":" + gpsCenter.CubeGrid.CustomName + ":" + SaveFile.EntityId.ToString() + ":" + Vector3DToString(gpsCenter.GetPosition()));
-                        current_state = 102;
+                        sMessage += Vector3DToString(shipOrientationBlock.GetPosition());
+                        antSend(sTag, sMessage);// antSend(sMessage);
+                                                //                        antSend("WICO:CON?:" + baseIdOf(iTargetBase).ToString() + ":" + "mini" + ":" + shipOrientationBlock.CubeGrid.CustomName + ":" + SaveFile.EntityId.ToString() + ":" + Vector3DToString(shipOrientationBlock.GetPosition()));
+                        current_state = 120;
                     }
                     else // No available base
                     {
                         // try to get a base to respond
                         checkBases(true);
-                        current_state = 109;
-//                        setMode(MODE_ATTENTION);
+                        current_state = 130;
+                        //                        setMode(MODE_ATTENTION);
                     }
                 }
                 else
                     ResetMotion();
             }
-            else if (current_state == 102)
+            else if (current_state == 120)
             { // wait for reply from base
+                StatusLog("Awaiting Response from Base", textPanelReport);
+
                 bWantFast = false;
-                DateTime dtMaxWait = dtStartShip.AddSeconds(5.0f);
+                DateTime dtMaxWait = dtDockingActionStart.AddSeconds(5.0f);
                 DateTime dtNow = DateTime.Now;
                 if (DateTime.Compare(dtNow, dtMaxWait) > 0)
                 {
-                    current_state = 105;
+                    sStartupError += "\nTime out awaiting CONA";
+                    current_state = 125;
                     return;
                 }
-                if (sReceivedMessage != "")
+                //                if (sReceivedMessage != "")
+                if (_CONAIGCChannel.HasPendingMessage)
                 {
-                    Echo("Received Message=\n" + sReceivedMessage);
-                    string[] aMessage = sReceivedMessage.Trim().Split(':');
+                    var igcMessage=_CONAIGCChannel.AcceptMessage();
+                    string sMessage = (string)igcMessage.Data;
+//                    Echo("Received Message=\n" + sMessage);
+                    string[] aMessage = sMessage.Trim().Split(':');
                     Echo(aMessage.Length + ": Length");
                     for (int i = 0; i < aMessage.Length; i++)
                         Echo(i + ":" + aMessage[i]);
                     if (aMessage.Length > 1)
                     {
+                        /*
                         if (aMessage[0] != "WICO")
                         {
                             Echo("not wico system message");
@@ -235,21 +255,23 @@ namespace IngameScript
                         {
                             if (aMessage[1] == "CONA")
                             {
+                            */
                                 Echo("Approach answer!");
-                                //antSend("WICO:CONA:" + droneId +":" + SaveFile.EntityId.ToString(), +":"+Vector3DToString(vApproachPosition))
+                        //antSend("WICO:CONA:" + droneId +":" + SaveFile.EntityId.ToString(), +":"+Vector3DToString(vApproachPosition))
+                        int iOffset = 0;
 
                                 long id = 0;
-                                long.TryParse(aMessage[2], out id);
+                                long.TryParse(aMessage[iOffset++], out id);
                                 if (id == SaveFile.EntityId)
                                 {
                                     // it's a message for us.
-                                    sReceivedMessage = ""; // we processed it.
-                                    long.TryParse(aMessage[3], out id);
+//                                    sReceivedMessage = ""; // we processed it.
+                                    long.TryParse(aMessage[iOffset++], out id);
                                     double x, y, z;
-                                    int iOff = 4;
-                                    x = Convert.ToDouble(aMessage[iOff++]);
-                                    y = Convert.ToDouble(aMessage[iOff++]);
-                                    z = Convert.ToDouble(aMessage[iOff++]);
+//                                    int iOff = iOffset++;
+                                    x = Convert.ToDouble(aMessage[iOffset++]);
+                                    y = Convert.ToDouble(aMessage[iOffset++]);
+                                    z = Convert.ToDouble(aMessage[iOffset++]);
                                     Vector3D vPosition = new Vector3D(x, y, z);
 
                                     vHome = vPosition;
@@ -257,82 +279,100 @@ namespace IngameScript
                                     //                                        StatusLog("clear", gpsPanel);
                                     //                                        debugGPSOutput("Home", vHome);
 
-                                    current_state = 110;
+                                    current_state = 150;
                                 }
                             }
                             // TODO: need to process CONF
+                            /*
                         }
                     }
+                    */
                 }
                 else
                 { // uses timeout from above
                     Echo("Awaiting reply message");
                 }
             }
-            else if (current_state == 105)
+            else if (current_state == 125)
             { // timeout waiting for reply from base..
                 // move closer to the chosen base's last known position.
-                if (iTargetBase < 0)
+                if (lTargetBase <= 0)
                 {
+                    // TODO: remove base from list and try again.  ATTENTION if no remaining bases
+                    sStartupError += "\nNo Base in range";
                     setMode(MODE_ATTENTION);
                     return;
                 }
-                doTravelMovement(basePositionOf(iTargetBase), 4000, 101, 106);
+                else if (RangeToNearestBase() < 3000)
+                {
+                    // we think we are close enough
+                    // force recheck
+//                    sStartupError += "\nForce Recheck";
+                    lTargetBase = -1;
+                    checkBases(true);
+                    current_state = 110;
+                }
+                else
+                {
+                    // get closer
+//                    sStartupError += "\nGet Closer";
+                    NavGoTarget(BasePositionOf(lTargetBase), iMode, 110, 3100, "DOCK Base Proximity");
+                    current_state = 126;
+                }
+                //                doTravelMovement(BasePositionOf(lTargetBase), 3100, 110, 106);
             }
-            else if (current_state == 106)
+            else if(current_state==126)
             {
-                ResetTravelMovement();
-                calcCollisionAvoid(basePositionOf(iTargetBase));
-                current_state = 107;
+                // we are waiting for NAV module to get message and start
+                Echo("Waiting for NAV to start");
             }
-            else if (current_state == 107)
-            {
-                doTravelMovement(vAvoid, 5.0f, 101, 106);
-            }
-            else if (current_state == 109)
+            else if (current_state == 130)
             {
                 // no known bases. requested response. wait for a while to see if we get one
+                StatusLog("Trying to find a base", textPanelReport);
                 bWantFast = false;
-                DateTime dtMaxWait = dtStartShip.AddSeconds(2.0f);
+                DateTime dtMaxWait = dtDockingActionStart.AddSeconds(2.0f);
                 DateTime dtNow = DateTime.Now;
                 if (DateTime.Compare(dtNow, dtMaxWait) > 0)
                 {
+                    sStartupError += "\nTimeout finding base";
                     setMode(MODE_ATTENTION);
                     return;
                 }
-                if (findBestBase() >= 0)
-                    current_state = 101;
+                if (BaseFindBest() >= 0)
+                    current_state = 110;
             }
 
-            else if (current_state == 110)
-            { //110	Move to 'approach' location (or current location) ?request 'wait' location?
+            else if (current_state == 150)
+            { //150	Move to 'approach' location (or current location) ?request 'wait' location?
+                current_state = 175;
+                /*
                 if (bValidHome)
                 {
-                    double distancesqHome = Vector3D.DistanceSquared(vHome, gpsCenter.GetPosition());
-                    if (distancesqHome > 25000) // max SG antenna range
+                    double distancesqHome = Vector3D.DistanceSquared(vHome, shipOrientationBlock.GetPosition());
+                    if (distancesqHome > 25000) // max SG antenna range //TODO: get max from antenna module
                     {
-                        current_state = 115;
+                        current_state = 175;
                     }
-                    else current_state = 120;
+                    else current_state = 200;
                 }
-                else current_state = 120;
+                else current_state = 200;
+                */
             }
-            else if (current_state == 111)
-            { // collision detected
-                ResetTravelMovement();
-                calcCollisionAvoid(vHome);
-                current_state = 112;
-            }
-            else if (current_state == 112)
-            { // avoid collision
-                doTravelMovement(vAvoid, 5.0f, 110, 111);
-            }
-            else if (current_state == 115)
+            else if (current_state == 175)
             { // get closer to approach location
-                doTravelMovement(vHome, 5.0f, 120, 111);
+                NavGoTarget(vHome, iMode, 200, 5, "DOCK Base Approach");
+                current_state = 176;
             }
-            else if (current_state == 120)
-            {//120	request available docking connector
+            else if (current_state == 176)
+            {
+                // we are waiting for NAV module to get message and start
+                Echo("Waiting for NAV to start");
+            }
+            else if (current_state == 200)
+            {//200	Arrived at approach location
+                // request available docking connector
+                StatusLog("Requsting Docking Connector", textPanelReport);
                 if (velocityShip < 1)
                 {
 
@@ -342,55 +382,70 @@ namespace IngameScript
                                                      // front output order is BL, BR, TL, TR
                     double width = (points[0] - points[1]).Length();
                     double height = (points[0] - points[2]).Length();
-                    _obbf.GetFaceCorners(0,points);
- // face 0=right output order is  BL, TL, BR, TR ???
-                    double length=(points[0] - points[2]).Length();
+                    _obbf.GetFaceCorners(0, points);
+                    // face 0=right output order is  BL, TL, BR, TR ???
+                    double length = (points[0] - points[2]).Length();
 
-                    string sMessage = "WICO:COND?:";
-                    sMessage += baseIdOf(iTargetBase).ToString() + ":";
+                    string sMessage = "";// "WICO:COND?:";
+                    string sTag = "COND?";
+                    sMessage += lTargetBase.ToString() + ":";
                     sMessage += height.ToString("0.0") + "," + width.ToString("0.0") + "," + length.ToString("0.0") + ":";
-//                    sMessage += shipDim.HeightInMeters() + "," + shipDim.WidthInMeters() + "," + shipDim.LengthInMeters() + ":";
-                    sMessage += gpsCenter.CubeGrid.CustomName + ":";
+                    //                    sMessage += shipDim.HeightInMeters() + "," + shipDim.WidthInMeters() + "," + shipDim.LengthInMeters() + ":";
+                    sMessage += shipOrientationBlock.CubeGrid.CustomName + ":";
                     sMessage += SaveFile.EntityId.ToString() + ":";
-                    sMessage += Vector3DToString(gpsCenter.GetPosition());
-                    antSend(sMessage);
+                    sMessage += Vector3DToString(shipOrientationBlock.GetPosition());
+                    antSend(sTag, sMessage);// antSend(sMessage);
 
-                    //                    antSend("WICO:COND?:" + baseIdOf(iTargetBase) + ":" + "mini" + ":" + gpsCenter.CubeGrid.CustomName + ":" + SaveFile.EntityId.ToString() + ":" + Vector3DToString(gpsCenter.GetPosition()));
+                    //                    antSend("WICO:COND?:" + baseIdOf(iTargetBase) + ":" + "mini" + ":" + shipOrientationBlock.CubeGrid.CustomName + ":" + SaveFile.EntityId.ToString() + ":" + Vector3DToString(shipOrientationBlock.GetPosition()));
                     {
-                        dtStartShip = DateTime.Now;
-                        current_state = 131;
+                        dtDockingActionStart = DateTime.Now;
+                        current_state = 210;
                     }
                 }
                 else ResetMotion();
             }
-            else if (current_state == 130)
-            {
-                dtStartShip = DateTime.Now;
-                current_state = 131;
-            }
-            else if (current_state == 131)
-            { //131	wait for available connector
+            else if (current_state == 210)
+            { //210	wait for available connector
+                StatusLog("Awaiting reply with Docking Connector", textPanelReport);
                 bWantFast = false;
-                DateTime dtMaxWait = dtStartShip.AddSeconds(5.0f);
+                DateTime dtMaxWait = dtDockingActionStart.AddSeconds(5.0f);
                 DateTime dtNow = DateTime.Now;
                 if (DateTime.Compare(dtNow, dtMaxWait) > 0)
                 {
+                    sStartupError += "\nTime out awaiting COND";
                     current_state = 100;
                     return;
                 }
                 if (getAvailableRemoteConnector(out targetConnector))
                 {
-                    current_state = 140;
+                    current_state = 250;
                 }
                 else
                 {
-                    if (sReceivedMessage != "")
+                    if (_CONDIGCChannel.HasPendingMessage || _ACONDIGCChannel.HasPendingMessage)
+//                        if (sReceivedMessage != "")
                     {
-                        Echo("Received Message=\n" + sReceivedMessage);
-                        string[] aMessage = sReceivedMessage.Trim().Split(':');
+//                        sStartupError += "\nCOND received:";
+                        string sMessage="";
+                        bool bAlignMessage = false;
+                        if (_CONDIGCChannel.HasPendingMessage)
+                        {
+                            var igcMessage = _CONDIGCChannel.AcceptMessage();
+                            sMessage = (string)igcMessage.Data;
+                        }
+                        else
+                        {
+                            var igcMessage = _ACONDIGCChannel.AcceptMessage();
+                            sMessage = (string)igcMessage.Data;
+                            bAlignMessage = true;
+                        }
+ //                       Echo("Received Message=\n" + sReceivedMessage);
+                        string[] aMessage = sMessage.Trim().Split(':');
                         Echo(aMessage.Length + ": Length");
                         for (int i = 0; i < aMessage.Length; i++)
                             Echo(i + ":" + aMessage[i]);
+                        int iOffset = 0;
+                        /*
                         if (aMessage.Length > 1)
                         {
                             if (aMessage[0] != "WICO")
@@ -400,60 +455,64 @@ namespace IngameScript
                             }
                             if (aMessage.Length > 2)
                             {
+                            */
                                 //                                if (aMessage[1] == "DOCK" || aMessage[1] == "ADOCK")
-                                if (aMessage[1] == "COND" || aMessage[1] == "ACOND")
+ //                               if (aMessage[1] == "COND" || aMessage[1] == "ACOND")
                                 {
                                     Echo("Docking answer!");
                                     // FORMAT:	antSend("WICO:DOCK:" + aMessage[3] + ":" + connector.EntityId + ":" + connector.CustomName + ":" + Vector3DToString(vPosition) + ":" + Vector3DToString(vVec));
                                     //	antSend("WICO:ADOCK:" + incomingID + ":" + connector.EntityId + ":" + connector.CustomName 	+ ":" + Vector3DToString(vPosition) + ":" + Vector3DToString(vVec)+":" + Vector3DToString(vAlign));
 
                                     long id = 0;
-                                    long.TryParse(aMessage[2], out id);
-                                    if (id == SaveFile.EntityId)
-                                    {
-                                        // it's a message for us.
-                                        sReceivedMessage = ""; // we processed it.
-                                        long.TryParse(aMessage[3], out id);
-                                        string sName = aMessage[4];
-                                        double x, y, z;
-                                        int iOff = 5;
-                                        x = Convert.ToDouble(aMessage[iOff++]);
-                                        y = Convert.ToDouble(aMessage[iOff++]);
-                                        z = Convert.ToDouble(aMessage[iOff++]);
-                                        Vector3D vPosition = new Vector3D(x, y, z);
+                                    long.TryParse(aMessage[iOffset++], out id);
+                            if (id == SaveFile.EntityId)
+                            {
+                                // it's a message for us.
+//                                sReceivedMessage = ""; // we processed it.
+                                long.TryParse(aMessage[iOffset++], out id);
+                                string sName = aMessage[iOffset++];
+                                double x, y, z;
+                                //                                        int iOff = 5;
+                                x = Convert.ToDouble(aMessage[iOffset++]);
+                                y = Convert.ToDouble(aMessage[iOffset++]);
+                                z = Convert.ToDouble(aMessage[iOffset++]);
+                                Vector3D vPosition = new Vector3D(x, y, z);
 
-                                        x = Convert.ToDouble(aMessage[iOff++]);
-                                        y = Convert.ToDouble(aMessage[iOff++]);
-                                        z = Convert.ToDouble(aMessage[iOff++]);
-                                        Vector3D vVec = new Vector3D(x, y, z);
+                                x = Convert.ToDouble(aMessage[iOffset++]);
+                                y = Convert.ToDouble(aMessage[iOffset++]);
+                                z = Convert.ToDouble(aMessage[iOffset++]);
+                                Vector3D vVec = new Vector3D(x, y, z);
 
-                                        if (aMessage[1] == "ACOND")
-                                        {
-                                            x = Convert.ToDouble(aMessage[iOff++]);
-                                            y = Convert.ToDouble(aMessage[iOff++]);
-                                            z = Convert.ToDouble(aMessage[iOff++]);
-                                            vDockAlign = new Vector3D(x, y, z);
-                                            bDoDockAlign = true;
-                                        }
-                                        vDock = vPosition;
-                                        vLaunch1 = vDock + vVec * 10; // should use shipdim..
-                                        vHome = vDock + vVec * 30;
-                                        bValidDock = true;
-                                        bValidLaunch1 = true;
-                                        bValidHome = true;
-                                        StatusLog("clear", gpsPanel);
-                                        debugGPSOutput("dock", vDock);
-                                        debugGPSOutput("launch1", vLaunch1);
-                                        debugGPSOutput("Home", vHome);
+                                //                                        if (aMessage[1] == "ACOND")
+                                if (bAlignMessage)
+                                {
+                                    x = Convert.ToDouble(aMessage[iOffset++]);
+                                    y = Convert.ToDouble(aMessage[iOffset++]);
+                                    z = Convert.ToDouble(aMessage[iOffset++]);
+                                    vDockAlign = new Vector3D(x, y, z);
+                                    bDoDockAlign = true;
+                                }
+                                vDock = vPosition;
+                                vLaunch1 = vDock + vVec * (shipDim.LengthInMeters() * 1.5);
+                                vHome = vDock + vVec * (shipDim.LengthInMeters() * 3);
+                                bValidDock = true;
+                                bValidLaunch1 = true;
+                                bValidHome = true;
+                                StatusLog("clear", gpsPanel);
+                                debugGPSOutput("dock", vDock);
+                                debugGPSOutput("launch1", vLaunch1);
+                                debugGPSOutput("Home", vHome);
 
-                                        current_state = 150;
+                                current_state = 300;
 
-                                    }
+                            }
+//                            else sStartupError += "\nCOND, but not my boat";
                                 }
                                 // TODO handle CONF
+                                /*
                             }
                         }
-
+                        */
                     }
                     else
                     { // uses timeout from above
@@ -461,145 +520,171 @@ namespace IngameScript
                     }
                 }
             }
-            else if (current_state == 140)
-            { //140	when available, calculate approach locations
+            else if (current_state == 250)
+            { //250	when available, calculate approach locations from a saved targetconnector
 
                 vDock = targetConnector.vPosition;
-                vLaunch1 = vDock + targetConnector.vVector * 10; // should use shipdim..
-                vHome = vDock + targetConnector.vVector * 30;
+                vLaunch1 = vDock + targetConnector.vVector * (shipDim.LengthInMeters() * 1.5);
+                vHome = vDock + targetConnector.vVector * (shipDim.LengthInMeters() * 3);
                 bValidDock = true;
                 bValidLaunch1 = true;
                 bValidHome = true;
-                current_state = 150;
+                current_state = 300;
                 StatusLog("clear", gpsPanel);
                 debugGPSOutput("dock", vDock);
                 debugGPSOutput("launch1", vLaunch1);
                 debugGPSOutput("Home", vHome);
+                MoveForwardSlowReset();
                 bWantFast = true;
             }
-            else if (current_state == 150)
-            { //150  Start:	Move through locations
-                current_state = 160;
-                iPushCount = 0;
+            else if (current_state == 300)
+            { //300  Start:	Move through locations
+                current_state = 310;
+                MoveForwardSlowReset();
+//                iDockingPushCount = 0;
                 bWantFast = true;
             }
-            else if (current_state == 160)
-            { //	160 move to home
+            else if (current_state == 310)
+            { //	310 move to home
                 Echo("Moving to Home");
                 //		if(iPushCount<60) iPushCount++;
                 //		else
-                doTravelMovement(vHome, 3.0f, 169, 161);
-            }
-            else if (current_state == 161)
-            { //161 Collision detected
-                ResetTravelMovement();
-                calcCollisionAvoid(vHome);
-                current_state = 162;
-                iPushCount = 0;
-                bWantFast = true;
-            }
-            else if (current_state == 162)
-            {
-                //		if(iPushCount<60) iPushCount++;
-                //		else
-                doTravelMovement(vAvoid, 5.0f, 160, 163);
-                //		doTravelMovement(vAvoid, 5.0f, 160, 165);
-            }
-            else if (current_state == 163)
-            {       // secondary collision
 
-//                if (lastDetectedInfo.Type == MyDetectedEntityType.Asteroid)
-                if (lastDetectedInfo.Type == MyDetectedEntityType.Asteroid 
-                    || lastDetectedInfo.Type == MyDetectedEntityType.LargeGrid 
-                    || lastDetectedInfo.Type == MyDetectedEntityType.SmallGrid 
-                    )
-                {
-                    current_state = 164;
-                }
-                else current_state = 161;// setMode(MODE_ATTENTION);
-                bWantFast = true;
+                NavGoTarget(vHome, iMode, 340, 3, "DOCK Approach");
+                //               doTravelMovement(vHome, 3.0f, 350, 161);
+                current_state = 311;
             }
-            else if (current_state == 164)
+            else if (current_state == 311)
             {
-                initEscapeScan();
-                dtStartShip = DateTime.Now;
-                current_state = 165;
-                bWantFast = true;
+                // we are waiting for NAV module to get message and start
+                Echo("Waiting for NAV to start");
             }
-            else if (current_state == 165)
-            {
-                DateTime dtMaxWait = dtStartShip.AddSeconds(5.0f);
-                DateTime dtNow = DateTime.Now;
-                if (DateTime.Compare(dtNow, dtMaxWait) > 0)
-                {
-                    setMode(MODE_ATTENTION);
-                    return;
-                }
-                if (scanEscape())
-                {
-                    current_state = 162;
-                }
-                bWantFast = true;
-            }
-            else if (current_state == 169)
-            {
+            else if (current_state == 340)
+            { // arrived at 'home' from NAV
                 ResetMotion();
                 Echo("Waiting for ship to stop");
                 turnEjectorsOff();
-                iPushCount = 0;
+                MoveForwardSlowReset();
+//                iDockingPushCount = 0;
                 if (velocityShip < 0.1f)
                 {
                     bWantFast = true;
-                    current_state = 170;
+                    current_state = 350;
                 }
                 else
                 {
                     bWantMedium = true;
-                    bWantFast = false;
+                    //                    bWantFast = false;
                 }
             }
-            else if (current_state == 170 || current_state == 172)
-            { //170 172 'reverse' to dock, aiming connector at dock location
-              // align to docking alignment if needed
+            else if (current_state == 350)
+            {
+                // move connector closer to home
+                double distanceSQ = (vHome - ((IMyShipController)shipOrientationBlock).CenterOfMass).LengthSquared();
+                Echo("DistanceSQ=" + distanceSQ.ToString("0.0"));
+                double stoppingDistance = calculateStoppingDistance(thrustBackwardList, velocityShip, 0);
+                if (distanceSQ > shipDim.BlockMultiplier() * 3)
+                {
+                    MoveForwardSlow(3, 5, thrustForwardList, thrustBackwardList);
+                    bWantMedium = true;
+                }
+                else
+                {
+                    ResetMotion();
+                    doSubModuleTimerTriggers("[DOCKING:APPROACH]");
+                    MoveForwardSlowReset();
+                    current_state = 400;
+                    bWantFast = true;
+                }
+            }
+            else if(current_state==400)
+            {
+                // move to Launch1
+                Echo("Moving to Launch1");
+
+                NavGoTarget(vLaunch1, iMode, 410, 3,"DOCK Connector Entry");
+                current_state = 401;
+            }
+            else if (current_state == 401)
+            {
+                // we are waiting for NAV module to get message and start
+                Echo("Waiting for NAV to start");
+            }
+            else if (current_state==410)
+            {
+                // move closer to Launch1
+                double distanceSQ = (vLaunch1 - ((IMyShipController)shipOrientationBlock).CenterOfMass).LengthSquared();
+                Echo("DistanceSQ=" + distanceSQ.ToString("0.0"));
+                double stoppingDistance = calculateStoppingDistance(thrustBackwardList, velocityShip, 0);
+                if (distanceSQ > shipDim.BlockMultiplier() * 3)
+                {
+                    MoveForwardSlow(3, 5, thrustForwardList, thrustBackwardList);
+                    bWantMedium = true;
+                }
+                else
+                {
+                    ResetMotion();
+                    MoveForwardSlowReset();
+                    current_state = 430;
+                    bWantFast = true;
+                }
+            }
+            else if(current_state==430)
+            {
+                // arrived at launch1
                 bWantFast = true;
-//                turnEjectorsOff();
+                dockingLastDistance = -1;
+                current_state = 450;
+                // TODO: do/waitfor mechanical changes needed for docking
+            }
+            else if (current_state == 450 || current_state == 452)
+            { //450 452 'reverse' to dock, aiming connector at dock location
+              // align to docking alignment if needed
+                StatusLog("Align Up to Docking Connector", textPanelReport);
+                bWantFast = true;
+                //                turnEjectorsOff();
                 if (!bDoDockAlign)
                 {
-                    current_state = 173;
+                    current_state = 500;
                     return;
                 }
                 Echo("Aligning to dock");
                 bool bAimed = false;
                 minAngleRad = 0.03f;
 
-                // may need to change direction if non- 'back' connector
-                bAimed = GyroMain("up", vDockAlign, gpsCenter);
-                if (bAimed) current_state++; // 170->171 172->173
+                // TODO: need to change direction if non- 'back' connector
+                bAimed = GyroMain("up", vDockAlign, shipOrientationBlock);
+                bWantFast = true;
+                if (current_state == 452) current_state = 500;
+                else if (bAimed) current_state++; // 450->451 
             }
-            else if (current_state == 171)
-            { //171 align to dock
+            else if (current_state == 451)
+            { //451 align to dock
+                StatusLog("Align to Docking Connector", textPanelReport);
                 bWantFast = true;
                 Vector3D vTargetLocation = vDock;
                 Vector3D vVec = vTargetLocation - dockingConnector.GetPosition();
 
                 if (!bDoDockAlign)
-                    current_state = 172;
+                    current_state = 452;
 
-                //		Vector3D vTargetLocation = gpsCenter.GetPosition() +vDockAlign;
-                //		Vector3D vVec = vTargetLocation - gpsCenter.GetPosition();
+                //		Vector3D vTargetLocation = shipOrientationBlock.GetPosition() +vDockAlign;
+                //		Vector3D vVec = vTargetLocation - shipOrientationBlock.GetPosition();
                 Echo("Aligning to dock");
                 bool bAimed = false;
                 minAngleRad = 0.03f;
                 bAimed = GyroMain("forward", vVec, dockingConnector);
-                if (bAimed) current_state = 172;
+                if (bAimed) current_state = 452;
+                else bWantFast = true;
 
             }
-            else if (current_state == 173)
-            { //173 'reverse' to dock, aiming connector at dock location
-                // needs a time-out for when misaligned or base connector moves.
-                bWantFast = true;
+            else if (current_state == 500)
+            { //500 'reverse' to dock, aiming connector at dock location (really it's connector-forward)
+              // TODO: needs a time-out for when misaligned or base connector moves.
+              //               bWantFast = true;
+                StatusLog("Reversing to Docking Connector", textPanelReport);
                 Echo("bDoDockAlign=" + bDoDockAlign);
-                StatusLog(moduleName + ":Docking: Reversing to dock! Velocity=" + velocityShip.ToString("0.00"), textPanelReport);
+                //                StatusLog(moduleName + ":Docking: Reversing to dock! Velocity=" + velocityShip.ToString("0.00"), textPanelReport);
                 Echo("Reversing to Dock");
                 CTRL_COEFF = 0.75;
                 minAngleRad = 0.01f;
@@ -609,13 +694,22 @@ namespace IngameScript
                 double distance = vVec.Length();
                 Echo("distance=" + niceDoubleMeters(distance));
                 Echo("velocity=" + velocityShip.ToString("0.00"));
+                StatusLog("Distance=" + niceDoubleMeters(distance), textPanelReport);
+                StatusLog("Velocity=" + niceDoubleMeters(velocityShip) + "/s", textPanelReport);
 
+                if (dockingLastDistance < 0) dockingLastDistance = distance;
+                if(dockingLastDistance<distance)
+                {
+                    // we are farther away than last time... something is wrong..
+//                    sStartupError += "\nLast=" + niceDoubleMeters(dockingLastDistance) + " Cur=" + niceDoubleMeters(distance);
+                    current_state = 590;
+                }
                 if (distance > 10)
                     minAngleRad = 0.03f;
                 else
                     minAngleRad = 0.05f;
 
-                debugGPSOutput("DockLocation", vTargetLocation);
+                //                debugGPSOutput("DockLocation", vTargetLocation);
 
                 bool bAimed = false;
                 /*
@@ -627,7 +721,27 @@ namespace IngameScript
                         }
                         else
                 */
-                bAimed = GyroMain("forward", vVec, dockingConnector);
+                if (distance > 15)
+                    bAimed = BeamRider(vLaunch1, vDock, dockingConnector);
+                else
+                    bAimed = GyroMain("forward", vVec, dockingConnector);
+
+                /*
+                double maxThrust = calculateMaxThrust(thrustDockForwardList);
+                MyShipMass myMass;
+                myMass = ((IMyShipController)shipOrientationBlock).CalculateShipMass();
+                double effectiveMass = myMass.PhysicalMass;
+                double maxDeltaV = (maxThrust) / effectiveMass;
+                if (iDockingPushCount < 1)
+                {
+                    if (maxDeltaV < 2)
+                        iDockingPushCount = 75;
+                    else if (maxDeltaV < 5)
+                        iDockingPushCount = 25;
+                }
+                */
+                //               Echo("dockingPushCount=" + iDockingPushCount);
+                // TODO: if we aren't moving and dockingpushcount>100, then we need to wiggle.
 
                 if (bAimed)
                 {
@@ -635,40 +749,68 @@ namespace IngameScript
                     Echo("Aimed");
                     if (distance > 15)
                     {
+                        bWantMedium = true;
                         Echo(">15");
+                        MoveForwardSlow(5, 10, thrustDockForwardList, thrustDockBackwardList);
+                        /*
                         if (velocityShip < .5)
                         {
-                            iPushCount++;
-                            powerUpThrusters(thrustDockForwardList, 25+ iPushCount);
+                            iDockingPushCount++;
+                            powerUpThrusters(thrustDockForwardList, 25 + iDockingPushCount);
                         }
                         else if (velocityShip < 5)
+                        {
                             powerUpThrusters(thrustDockForwardList, 1);
+                        }
                         else
                             powerDownThrusters(thrustAllList);
+                            */
                     }
                     else
                     {
                         Echo("<=15");
+                        bWantFast = true;
+                        MoveForwardSlow(.5f, 1.5f, thrustDockForwardList, thrustDockBackwardList);
+                        /*
                         if (velocityShip < .5)
                         {
-                            iPushCount++;
-                            powerUpThrusters(thrustDockForwardList, 25 + iPushCount);
+                            iDockingPushCount++;
+                            powerUpThrusters(thrustDockForwardList, 25 + iDockingPushCount);
                         }
                         else if (velocityShip < 1.4)
                         {
                             powerUpThrusters(thrustDockForwardList, 1);
-                            if (iPushCount > 0) iPushCount--;
+                            if (iDockingPushCount > 0) iDockingPushCount--;
                         }
                         else
                             powerDownThrusters(thrustAllList);
-
+                            */
                     }
                 }
                 else
                 {
                     Echo("Aiming");
                     powerDownThrusters(thrustAllList);
+                    bWantFast = true;
                 }
+            }
+            else if(current_state==590)
+            {
+                // abort dock and try again
+                ResetMotion();
+                Vector3D vVec = vDock - dockingConnector.GetPosition();
+                double distance = vVec.Length();
+                if (distance > shipDim.LengthInMeters() * 1.25)
+                {
+                    // we are far enough away.  Try again
+                    current_state = 0;
+                    bWantFast = true;
+                    return;
+                }
+                bool bAimed = GyroMain("forward", vVec, dockingConnector);
+                if (!bAimed) bWantFast = true;
+                else bWantMedium = true;
+                MoveForwardSlow(5, 10, thrustDockBackwardList, thrustDockForwardList);
             }
         }
         #endregion

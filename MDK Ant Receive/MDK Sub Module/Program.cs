@@ -20,28 +20,33 @@ namespace IngameScript
     {
         string OurName = "Wico Craft";
         string moduleName = "AntReceive";
-        string sVersion = "3.2";
+        string sVersion = "3.8";
 
-        const string sGPSCenter = "Craft Remote Control";
-
-        IMyTerminalBlock gpsCenter = null;
-
-        class OurException : Exception
+        void ModuleDeserialize(INIHolder iNIHolder)
         {
-            public OurException(string msg) : base("WicoAntReceiveModule" + ": " + msg) { }
+            ScansDeserialize(iNIHolder);
+            AsteroidsDeserialize();
+            OreDeserialize();
         }
 
-        
+        void ModuleSerialize(INIHolder iNIHolder)
+        {
+            ScansDeserialize(iNIHolder);
+            AsteroidSerialize();
+            OreSerialize();
+        }
+
         void moduleDoPreModes()
         {
             AntennaCheckOldMessages();
         }
 
-
         void modulePostProcessing()
         {
-            AntDisplayPendingMessages();
-
+//            AntDisplayPendingMessages();
+            Echo(asteroidsInfo.Count.ToString() + " Known Asteroids");
+            Echo(oreLocs.Count.ToString() + " Known Ores");
+ //           OreDumpLocs();
             Echo(sInitResults);
             echoInstructions();
         }
@@ -52,8 +57,8 @@ namespace IngameScript
 //            gyrosOff();
 //            powerDownRotors(rotorNavLeftList);
 //            powerDownRotors(rotorNavRightList);
-	        if (gpsCenter is IMyRemoteControl) ((IMyRemoteControl)gpsCenter).SetAutoPilotEnabled(false);
-	        if (gpsCenter is IMyShipController) ((IMyShipController)gpsCenter).DampenersOverride = true;
+	        if (shipOrientationBlock is IMyRemoteControl) ((IMyRemoteControl)shipOrientationBlock).SetAutoPilotEnabled(false);
+	        if (shipOrientationBlock is IMyShipController) ((IMyShipController)shipOrientationBlock).DampenersOverride = true;
 //            if(!bNoDrills) turnDrillsOff();
         } 
 

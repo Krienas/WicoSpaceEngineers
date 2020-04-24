@@ -13,6 +13,7 @@ using VRage.Game.ModAPI.Ingame;
 using VRage.Game.ObjectBuilders.Definitions;
 using VRage.Game;
 using VRageMath;
+//using VRage.Game.Gui.TextPanel;
 
 namespace IngameScript
 {
@@ -22,16 +23,68 @@ namespace IngameScript
 
         Dictionary<string, int> modeCommands = new Dictionary<string, int>();
         string sBanner = "";
-        UpdateFrequency ufFast = UpdateFrequency.Update1; // default value for "Fast" for this module
+        UpdateFrequency ufFast = UpdateFrequency.Once; // default value for "Fast" for this module
 
-        bool bSubModules = true;
+        /// <summary>
+        /// Do we support submodules?
+        /// </summary>
+        bool bSupportSubModules = true;
+
+        /// <summary>
+        /// Display the init text as craft Operation
+        /// </summary>
         bool bCraftOperation = true;
+        /// <summary>
+        /// Dump the UpdateType. Settable in CustomData.  This is default.
+        /// </summary>
+        bool bDebugUpdate = false;
 
+        /// <summary>
+        /// We are a MAIN module, not sub-module
+        /// </summary>
+        bool bIAmSubModule = false;
+
+        double dSubmoduleTriggerWait = 5; //seconds between submodule triggers
+        double dSubmoduleTriggerLast = -1;
+
+        double dErrorGridReInitWait = 5; //seconds between trying to re-init between errors
+        double dErrorGridReInitLast = -1;
+
+        float fMaxWorldMps = 100;
+        string sWorldSection = "WORLD";
+        void WorldInitCustomData(INIHolder iNIHolder)
+        {
+            iNIHolder.GetValue(sWorldSection, "MaxWorldMps", ref fMaxWorldMps, true);
+        }
+
+        string sMainSection = "WICOCRAFT";
         public Program()
         {
-            sBanner = OurName + ":" + moduleName + " V" + sVersion + " ";
-            Echo(sBanner + "Creator");
             doModuleConstructor();
+
+            INIHolder iniCustomData = new INIHolder(this, Me.CustomData);
+
+            iniCustomData.GetValue(sMainSection, "EchoOn", ref bEchoOn, true);
+            iniCustomData.GetValue(sMainSection, "DebugUpdate", ref bDebugUpdate, true);
+            iniCustomData.GetValue(sMainSection, "SubModules", ref bSupportSubModules, true);
+            iniCustomData.GetValue(sMainSection, "SubmoduleTriggerWait", ref dSubmoduleTriggerWait, true);
+
+            _oldEcho = Echo;
+            Echo = MyEcho;
+
+            WorldInitCustomData(iniCustomData);
+            GridsInitCustomData(iniCustomData);
+            LoggingInitCustomData(iniCustomData);
+            TimersInitCustomData(iniCustomData);
+
+            ModuleInitCustomData(iniCustomData);
+            if (iniCustomData.IsDirty)
+            {
+                Me.CustomData = iniCustomData.GenerateINI(true);
+            }
+
+            sBanner = OurName + ":" + moduleName + " V" + sVersion + " ";
+            _oldEcho(sBanner + "Creator");
 
             initLogging();
             StatusLog("clear", textLongStatus, true); // only MAIN module should clear long status on init.
@@ -40,32 +93,97 @@ namespace IngameScript
                 // if no main timer, then use UpdateFrequency
                 Runtime.UpdateFrequency |= UpdateFrequency.Update100;
             }
-                                                //	if (!Me.CustomName.Contains(moduleName))
-                                                //		Me.CustomName = "PB " + OurName+ " "+moduleName;
+            //	if (!Me.CustomName.Contains(moduleName))
+            //		Me.CustomName = "PB " + OurName+ " "+moduleName;
+            if (!Me.Enabled)
+            {
+                Echo("I am turned OFF!");
+            }
+
+            IMyTextSurface mesurface0=Me.GetSurface(0);
+            mesurface0.ContentType = VRage.Game.GUI.TextPanel.ContentType.TEXT_AND_IMAGE;
+            mesurface0.WriteText("Wicorel\n"+ moduleName);
+            mesurface0.FontSize = 2;
+            mesurface0.Alignment = VRage.Game.GUI.TextPanel.TextAlignment.CENTER;
+
+            IMyTextSurface mesurface1 = Me.GetSurface(1);
+            mesurface1.ContentType = VRage.Game.GUI.TextPanel.ContentType.TEXT_AND_IMAGE;
+            mesurface1.WriteText("Version:" + sVersion);
+            mesurface1.Alignment = VRage.Game.GUI.TextPanel.TextAlignment.CENTER;
+            mesurface1.TextPadding = 0.25f;
+            mesurface1.FontSize = 3.5f;
+
+            /*
+            using (var frame = mesurface0.DrawFrame())
+            {
+                MySprite sprite;
+                // Background
+                //                sprite = new MySprite(SpriteType.TEXTURE, "SquareSimple", color: new Color(50, 150, 255, 255), size: SIZE);
+                //                sprite.Position = surfaceSize * 0.5f + POS;
+                sprite = MySprite.CreateText("Wicorel", "Monospace", Color.Red, 1f, TextAlignment.LEFT);
+                sprite.Position = new Vector2(16, 16);
+                frame.Add(sprite);
+            }
+            */
+
+            /*
+            using (var frame = mesurface1.DrawFrame())
+            {
+                MySprite sprite;
+
+                // Background
+                //                sprite = new MySprite(SpriteType.TEXTURE, "SquareSimple", color: new Color(50, 150, 255, 255), size: SIZE);
+                //                sprite.Position = surfaceSize * 0.5f + POS;
+                sprite = MySprite.CreateText(moduleName, "Monospace", Color.Red, 1f, TextAlignment.LEFT);
+                sprite.Position = new Vector2(16, 16);
+                frame.Add(sprite);
+            }
+            */
+
         }
 
-        #region MAIN
+        bool bEchoOn = true;
+
+        Action<string> _oldEcho;
+        void MyEcho(string output)
+        {
+            // Do whatever you'd want with the output here
+            if (bEchoOn) _oldEcho(output);
+        }
+
+
 
         bool init = false;
         bool bWasInit = false;
+        string sInitResults = "";
+        int currentInit = 0;
+
+        string sStartupError = "";
+        bool bStartupError = false;
+
         bool bWantFast = false;
+        bool bWantMedium = false;
 
         bool bWorkingProjector = false;
-
-        double velocityShip;//, velocityForward, velocityUp, velocityLeft;
-
         double dProjectorCheckWait = 5; //seconds between checks
         double dProjectorCheckLast = -1;
 
         double dGridCheckWait = 3; //seconds between checks
         double dGridCheckLast = -1;
 
-//        void Main(string sArgument)
+        double velocityShip = -1;
+        double dGravity = -2;
+
+        //        void Main(string sArgument)
         void Main(string sArgument, UpdateType ut)
         {
            Echo(sBanner + tick());
-            Echo(ut.ToString());
+            if (bDebugUpdate)
+            {
+                Echo(ut.ToString() + " : " + (int)ut);
+            }
             bWantFast = false;
+            bWantMedium = false;
             //ProfilerGraph();
 
             if (dProjectorCheckLast > dProjectorCheckWait)
@@ -98,43 +216,36 @@ namespace IngameScript
                 }
                 dProjectorCheckLast += Runtime.TimeSinceLastRun.TotalSeconds;
             }
-//            Echo("MainInst1:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
 
             sPassedArgument = "";
-/*
-            if (sArgument != "" && sArgument != "timer" || sArgument != "wcct")
-            {
-                Echo("Arg=" + sArgument);
-            }
-*/
             double newgridBaseMass = 0;
 
-            if (anchorPosition != null)
+            if (shipOrientationBlock is IMyShipController)
             {
                 if (dGridCheckLast > dGridCheckWait || !init)
                 {
-                   Echo("DO Grid Check");
+ //                  Echo("DO Grid Check");
                     dGridCheckLast = 0;
 
-//                    IMyTextPanel masstextBlock = getTextBlock("MASS");
                     MyShipMass myMass;
-                    myMass = ((IMyShipController)anchorPosition).CalculateShipMass();
+                    myMass = ((IMyShipController)shipOrientationBlock).CalculateShipMass();
 
-//                    StatusLog("clear", masstextBlock);
-//                    StatusLog("BaseMass=" + myMass.BaseMass.ToString(), masstextBlock);
-//                    StatusLog("TotalMass=" + myMass.TotalMass.ToString(), masstextBlock);
-//                    StatusLog("Physicalmass=" + myMass.PhysicalMass.ToString(), masstextBlock);
-                    //		Echo("Physicalmass=" + myMass.PhysicalMass.ToString());
-//                    StatusLog("gridBaseMass=" + gridBaseMass.ToString(), masstextBlock);
                     newgridBaseMass = myMass.BaseMass;
-                    Echo("New=" + newgridBaseMass + " CurrentM=" + gridBaseMass);
-             Echo("MASS:" + currentInit + ":"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
-                    if (myMass.BaseMass == 0)
-                        Echo("No Mass--Station?");
+//                    Echo("New=" + newgridBaseMass + " CurrentM=" + gridBaseMass);
+//                    if (myMass.BaseMass == 0)  Echo("No Mass--Station?");
                     if (newgridBaseMass != gridBaseMass && gridBaseMass > 0)
                     {
                         Echo("MASS CHANGE");
                         StatusLog(OurName + ":" + moduleName + ":MASS CHANGE", textLongStatus, true);
+                        // check for an error and retry
+//                        if (bStartupError && !bWasInit)
+                        {
+                            // keep trying
+                            init = false;
+                            sInitResults = "";
+                           dErrorGridReInitLast = 0;
+                        }
+
                     }
                 }
                 else
@@ -153,24 +264,53 @@ namespace IngameScript
             else
             {
 //                Echo("No anchorPosition to check");
-                gridBaseMass = newgridBaseMass = 0;
+                gridBaseMass = newgridBaseMass = -1;
+                // check for an error and retry
+                if (bStartupError && !bWasInit)
+                {
+                    // keep trying
+                    init = false;
+                    sInitResults = "";
+                    dErrorGridReInitLast = 0;
+                }
             }
-//            Echo("MainInst1A:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
+            if (dErrorGridReInitLast > dErrorGridReInitWait)
+            {
+                dErrorGridReInitLast = 0;
+                if (bStartupError)
+                {
+                    sArgument = "init";
+                    Echo("RESCAN!");
+                    dErrorGridReInitLast = 0;
+                }
+            }
+            else
+            {
+                if (bStartupError)
+                {
+                    Echo("Waiting for Rescan:" + dErrorGridReInitLast.ToString("0.0") + "(" + dErrorGridReInitWait.ToString("0.0") + ")");
+                    dErrorGridReInitLast += Runtime.TimeSinceLastRun.TotalSeconds;
+                }
+            }
 
-            if (sArgument == "init" || (Math.Abs(newgridBaseMass - gridBaseMass) > 1 && gridBaseMass > 0 && currentInit==0) || (currentInit == 0 && calcGridSystemChanged()))
+            if (
+                (sArgument == "init" && currentInit==0)
+                || (Math.Abs(newgridBaseMass - gridBaseMass) > 1 && gridBaseMass > 0 && currentInit==0) 
+   //             || (currentInit == 0 && calcGridSystemChanged())
+                )
             {
                 Log("INIT or GRID/MASS CHANGE!");
 
                 Echo("Arg init or grid/mass change!");
                 sInitResults = "";
-                anchorPosition = null;
+                dErrorGridReInitLast = dErrorGridReInitWait + 5;
                 init = false;
                 currentInit = 0;
+                sStartupError = "";
                 sPassedArgument = "init";
             }
             Log("clear");
 
-//            Echo("MainInst2:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
 
             if (!init)
             {
@@ -181,97 +321,142 @@ namespace IngameScript
                 }
                 else
                 {
-                    bWantFast = true;
+                }
+                bWantFast = true;
+                if(currentInit==0)
+                {
+                    bStartupError = false;
+                    sStartupError = "";
                 }
                 doInit();
+                if (bStartupError) bWantFast = false;
                 bWasInit = true;
+                if (init)
+                {
+                    sArgument = "";
+                    dErrorGridReInitLast = 0;
+                }
             }
             else
             {
-//            Echo("MainInst2a:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
-                if(bSubModules) Deserialize();
+                if(bSupportSubModules) Deserialize();
                 sPassedArgument = sArgument;
 
                 if (bWasInit)
                 {
                     StatusLog(DateTime.Now.ToString() + " " + sInitResults, textLongStatus, true);
                 }
-                //        Echo(sInitResults);
 
-//            Echo("MainInst2b:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
-//                Log(craftOperation());
-                IMyTerminalBlock anchorOrientation = gpsCenter;
-                /*
-                if (anchorOrientation != null)
+ //               IMyTerminalBlock anchorOrientation = shipOrientationBlock;
+                if (shipOrientationBlock != null)
                 {
-                    Matrix mTmp;
-                    anchorOrientation.Orientation.GetMatrix(out mTmp);
-                    mTmp *= -1;
-                    iForward = new Vector3I(mTmp.Forward);
-                    iUp = new Vector3I(mTmp.Up);
-                    iLeft = new Vector3I(mTmp.Left);
-                }
-                */
-                //        Vector3D mLast = vCurrentPos;
-                if (gpsCenter != null)
-                {
-                    vCurrentPos = gpsCenter.GetPosition();
+//                    vCurrentPos = shipOrientationBlock.GetPosition();
                 }
 
-//            Echo("MainInst2c:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
-                if (gpsCenter is IMyShipController)
-                //		if (gpsCenter is IMyRemoteControl)
+                // calculate(get) ship velocity and natural gravity
+                if (shipOrientationBlock is IMyShipController)
                 {
-//            Echo("MainInst2c1:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
-                    velocityShip = ((IMyShipController)gpsCenter).GetShipSpeed();
-//            Echo("MainInst2c2:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
+                    velocityShip = ((IMyShipController)shipOrientationBlock).GetShipSpeed();
 
-                    Vector3D vNG = ((IMyShipController)gpsCenter).GetNaturalGravity();
-                    //			Vector3D vNG = ((IMyRemoteControl)gpsCenter).GetNaturalGravity();
-//            Echo("MainInst2c3:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
+                    Vector3D vNG = ((IMyShipController)shipOrientationBlock).GetNaturalGravity();
                     double dLength = vNG.Length();
                     dGravity = dLength / 9.81;
-//            Echo("MainInst2c4:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
-
-                    if (dGravity > 0)
-                    {
-                        double elevation = 0;
-
-                        ((IMyShipController)gpsCenter).TryGetPlanetElevation(MyPlanetElevation.Surface, out elevation);
-                        Echo("Elevation=" + elevation.ToString("0.00"));
-
-                        double altitude = 0;
-                        ((IMyShipController)gpsCenter).TryGetPlanetElevation(MyPlanetElevation.Sealevel, out altitude);
-                        Echo("Sea Level=" + altitude.ToString("0.00"));
-
-                    }
-//            Echo("MainInst2cX:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
-
                 }
                 else
                 {
                     dGravity = -1.0;
                 }
+              
+                if (
+                    (ut & (UpdateType.Trigger | UpdateType.Terminal)) > 0
+                    || (ut & (UpdateType.Trigger)) > 0 // script run by a mod
+                    || (ut & (UpdateType.Terminal)) > 0 // script run by a mod
+                    || (ut & (UpdateType.Mod)) > 0 // script run by a mod
+                    || (ut & (UpdateType.Script)) > 0 // this pb run by another script (PB)
+                    )
+                {
+                    // pay attention to argument
+                    if (moduleProcessArguments(sArgument))
+                    {
+                        Serialize();
+                        UpdateAllPanels();
+                        return;
+                    }
 
-//              Echo("MainInst3:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
-               if (processArguments(sArgument))
+                }
+                else if ((ut & (UpdateType.IGC)) > 0)
+                {
+                    // antenna message
+                    if (!moduleProcessAntennaMessage(sArgument))
+                    {
+                        antReceive(sArgument);
+                    }
+                    Serialize();
+                    doTriggerMain(); // run ourselves again
+                    UpdateAllPanels();
                     return;
+                }
+                else
+                {
+                    // it should be one of the update types...
+                    //            if ((ut & (UpdateType.Once | UpdateType.Update1 | UpdateType.Update10 | UpdateType.Update100)) > 0)
+                    sArgument = ""; // else ignore argument
+                    /*
+                    // check for an error and retry
+                    if(bStartupError && !bWasInit)
+                    {
+                        // keep trying
+                        init = false;
+                        sInitResults = "";
+                    }
+                    */
+                }
 
-//               Echo("MainInst3A:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
-               moduleDoPreModes();
+                /*
+                if (processArguments(sArgument))
+                {
+                    UpdateAllPanels();
+                    return;
+                }
+                */
+                processPendingReceives();
+                processPendingSends();
+                moduleDoPreModes();
 
-//              Echo("MainInst3B:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
                 doModes();
             }
-            if(bSubModules) Serialize();
-//             Echo("MainInst4:"+Runtime.CurrentInstructionCount+ "/"+Runtime.MaxInstructionCount);
+            if(bSupportSubModules) Serialize();
 
-//            if ((anchorPosition == null || SaveFile == null ))
-            if ((SaveFile == null ))
+            //            if ((anchorPosition == null || SaveFile == null ))
+            if (bSupportSubModules)
             {
-                if(bSubModules) Echo("Cannot use sub-modules; missing controller and/or SaveFile");
+                if ((SaveFile == null))
+                {
+//                    Echo("Cannot use sub-modules; missing controller and/or SaveFile");
+                }
+                else
+                {
+                    if (
+                    (ut & (UpdateType.Trigger | UpdateType.Terminal)) > 0 // Timer or toolbar or 'run'
+                    || (ut & (UpdateType.Mod)) > 0 // script run by a mod
+                    || (ut & (UpdateType.Script)) > 0 // this pb run by another script (PB)
+                      ||  dSubmoduleTriggerLast > dSubmoduleTriggerWait
+                        // || init // always run after init done
+                        || bWasInit // run first time after init
+                        )
+                    {
+//                        Echo("Trigger sub-module!");
+                        dSubmoduleTriggerLast = 0;
+                        doSubModuleTimerTriggers(sSubModuleTimer);
+                    }
+                    else
+                    {
+//                        Echo("Delay for sub-module trigger");
+                        dSubmoduleTriggerLast+= Runtime.TimeSinceLastRun.TotalSeconds;
+                    }
+                }
             }
-            else doSubModuleTimerTriggers();
+            else Echo("Submodules turned off");
 
             if (bWantFast)
             {
@@ -282,19 +467,24 @@ namespace IngameScript
             {
                 Runtime.UpdateFrequency &= ~(ufFast);
             }
+            if (bWantMedium)
+            {
+                Echo("MEDIUM");
+                Runtime.UpdateFrequency |= UpdateFrequency.Update10;
+            }
+            else
+            {
+                Runtime.UpdateFrequency &= ~(UpdateFrequency.Update10);
+            }
 
-            bWasInit = false;
-
-//verifyAntenna();
-
-//            Echo("Passing:'" + sPassedArgument + "'");
 
             if(bCraftOperation) Echo(craftOperation());
 
             modulePostProcessing();
+            UpdateAllPanels();
+            bWasInit = false;
         }
 
-        #endregion
         void echoInstructions(string sBanner = null)
         {
             float fper = 0;

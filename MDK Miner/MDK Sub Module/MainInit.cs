@@ -23,14 +23,19 @@ namespace IngameScript
             // called from main constructor.
 //            bGotAntennaName = false;
         }
+        void ModuleInitCustomData(INIHolder iniCustomData)
+        {
+            ConnectorInitCustomData(iniCustomData);
+            MiningInitCustomData(iniCustomData);
+            ThrustersInitCustomData(iniCustomData);
+            SensorInitCustomData(iniCustomData);
+            CamerasInitCustomData(iniCustomData);
 
+            PowerInitCustomData(iniCustomData);
+            CargoInitCustomData(iniCustomData);
+            CommunicationsInitCustomData(iniCustomData);
+        }
 
-        #region maininit
-
-        string sInitResults = "";
-        string sArgResults = "";
-
-        int currentInit = 0;
 
         string doInit()
         {
@@ -39,131 +44,168 @@ namespace IngameScript
 
             // when all initialization is done, set init to true.
 
+            /*
         	if(currentInit==0) initLogging();
 
-            Log("Init:" + currentInit.ToString());
+//            Log("Init:" + currentInit.ToString());
             double progress = currentInit * 100 / 3;
             string sProgress = progressBar(progress);
             StatusLog(moduleName + sProgress, textPanelReport);
-
-            Echo("Init: " + currentInit.ToString());
-            if (currentInit == 0)
+            */
+            do
             {
-                //StatusLog("clear",textLongStatus,true);
-                StatusLog(DateTime.Now.ToString() + " " + OurName + ":" + moduleName + ":INIT", textLongStatus, true);
+//                echoInstructions("Init:" + currentInit + " | ");
+                switch (currentInit)
+                {
+                    case 0:
+                        sInitResults += gridsInit();
+                        break;
+                    case 1:
+                        
+                        /*
+                         * add commands to set modes
+                         * For Example:
+                        if(!modeCommands.ContainsKey("launchprep")) modeCommands.Add("launchprep", MODE_LAUNCHPREP);
+                        */
+                        modeCommands.Clear();
+//                        if (!modeCommands.ContainsKey("findore")) modeCommands.Add("findore", MODE_FINDORE);
+//                        if (!modeCommands.ContainsKey("doscan")) modeCommands.Add("doscan", MODE_DOSCAN);
+                        if (!modeCommands.ContainsKey("mine")) modeCommands.Add("mine", MODE_MINE);
+                        if (!modeCommands.ContainsKey("bore")) modeCommands.Add("bore", MODE_BORESINGLE);
+                        break;
+                    case 2:
+                        initLogging();
+                        break;
+                    case 3:
+                        StatusLog(DateTime.Now.ToString() + " " + OurName + ":" + moduleName + ":INIT", textLongStatus, true);
+                        break;
+                    case 4:
+                        sInitResults += SerializeInit();
+                        Deserialize();
+                        break;
+                    case 5:
+                        break;
+                    case 6:
+                        sInitResults += DefaultOrientationBlockInit();
+                        break;
+                    case 7:
+                        initShipDim(shipOrientationBlock);
+                        break;
+                    case 8:
+                        sInitResults += connectorsInit();
+                        break;
+                    case 9:
+                        sInitResults += thrustersInit(shipOrientationBlock);
+                        break;
+                    case 10:
+                        sInitResults += camerasensorsInit(shipOrientationBlock);
+                        break;
+                    case 11:
+                        sInitResults += SensorInit(shipOrientationBlock);
+                        break;
+                    case 12:
+                        sInitResults += tanksInit();
+                        break;
+                    case 13:
+                        sInitResults += gyrosetup();
+                        break;
+                    case 14:
+                        GyroControl.UpdateGyroList(gyros);
+                        break;
+                    case 15:
+                        sInitResults += drillInit();
+                        break;
+                    case 16:
+                        sInitResults += ejectorsInit();
+                        break;
+                    case 17:
+                        initCargoCheck();
+                        break;
+                    case 18:
+                        initAsteroidsInfo();
+                        break;
+                    case 19:
+//                        Deserialize(); 
+                        break;
+                    case 20:
+                        initOreLocInfo();
+                        break;
+                    case 21:
+                        initPower();
+                        break;
+                    case 22:
+                        tanksInit();
+                        break;
+                    case 23:
+                        sInitResults += modeOnInit();
+                        break;
+                    case 24:
+                        if (sensorsList.Count < 2)
+                        {
+                            //                            bStartupError = true;
+                            sStartupError += "\nNot enough Sensors detected!";
+                        }
+                        if (!HasDrills())
+                        {
+                            //                            bStartupError = true;
+                            sStartupError += "\nNo Drills found!";
+                        }
+                        break;
+                    case 25:
+                        Serialize();
+                        init = true;
+                        break;
 
-                if (!modeCommands.ContainsKey("findore")) modeCommands.Add("findore", MODE_FINDORE);
-
-                gridsInit();
-                sInitResults += initSerializeCommon();
-                Deserialize();
-        		initShipDim();
+                }
+                currentInit++;
+//                echoInstructions("EInit:" + currentInit + " | ");
+                Echo("%=" + (float)Runtime.CurrentInstructionCount / (float)Runtime.MaxInstructionCount);
             }
-            else if (currentInit == 1)
-            {
-                sInitResults += BlockInit();
-                anchorPosition = gpsCenter;
-                currentPosition = anchorPosition.GetPosition();
-		        sInitResults += connectorsInit();
-		        sInitResults += thrustersInit(gpsCenter);
-		        sInitResults+=camerasensorsInit(gpsCenter); 
-		        sInitResults+=sensorInit(); 
+            while (!init && (((float)Runtime.CurrentInstructionCount / (float)Runtime.MaxInstructionCount) < 0.5f));
 
-//		        sInitResults += gearsInit();
-		        sInitResults += tanksInit();
-		        sInitResults += gyrosetup();
-                GyroControl.UpdateGyroList(gyros);
-
-		        sInitResults += drillInit();
-		        sInitResults += ejectorsInit();
-                initCargoCheck();
-
-                Deserialize();
-//                bWantFast = false;
-                sInitResults += modeOnInit();
-                init = true;
-            }
-
-            currentInit++;
             if (init) currentInit = 0;
 
-            Log(sInitResults);
+//            Log(sInitResults);
             Echo("Init exit");
             return sInitResults;
 
         }
 
-        IMyTextPanel gpsPanel = null;
-
-        string BlockInit()
-        {
-            string sInitResults = "";
-
-            List<IMyTerminalBlock> centerSearch = new List<IMyTerminalBlock>();
-            GridTerminalSystem.SearchBlocksOfName(sGPSCenter, centerSearch, (x1 => x1.CubeGrid == Me.CubeGrid));
-            if (centerSearch.Count == 0)
-            {
-                centerSearch = GetBlocksContains<IMyRemoteControl>("[NAV]");
-                if (centerSearch.Count == 0)
-                {
-                    GridTerminalSystem.GetBlocksOfType<IMyRemoteControl>(centerSearch, (x1 => x1.CubeGrid == Me.CubeGrid));
-                    if (centerSearch.Count == 0)
-                    {
-                        GridTerminalSystem.GetBlocksOfType<IMyCockpit>(centerSearch, localGridFilter);
-                        //                GridTerminalSystem.GetBlocksOfType<IMyShipController>(centerSearch, localGridFilter);
-                        int i = 0;
-                        for (; i < centerSearch.Count; i++)
-                        {
-                            Echo("Checking Controller:" + centerSearch[i].CustomName);
-                            if (centerSearch[i] is IMyCryoChamber)
-                                continue;
-                            break;
-                        }
-                        if (i > centerSearch.Count)
-                        {
-                            sInitResults += "!!NO valid Controller";
-                            Echo("No Controller found");
-                        }
-                        else
-                        {
-                            sInitResults += "S";
-                            Echo("Using good ship Controller: " + centerSearch[i].CustomName);
-                        }
-                    }
-                    else
-                    {
-                        sInitResults += "R";
-                        Echo("Using First Remote control found: " + centerSearch[0].CustomName);
-                    }
-                }
-            }
-            else
-            {
-                sInitResults += "N";
-                Echo("Using Named: " + centerSearch[0].CustomName);
-            }
-            gpsCenter = centerSearch[0];
-
-            List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
-            blocks = GetBlocksContains<IMyTextPanel>("[GPS]");
-            if (blocks.Count > 0)
-                gpsPanel = blocks[0] as IMyTextPanel;
-
-            return sInitResults;
-        }
-
-        #endregion
-
         string modeOnInit()
         {
             // check current state and perform reload init to correct state
-            if(iMode==MODE_FINDORE)
+            MinerCalculateBoreSize();
+            if (miningAsteroidID > 0)
             {
-                if (current_state == 410)
-                    current_state = 400;// reinit
+                MinerCalculateAsteroidVector(miningAsteroidID);
+                //                vAsteroidBoreEnd = AsteroidCalculateBoreEnd();
+                //                vAsteroidBoreStart = AsteroidCalculateBoreStart();
+                MinerCalculateBoreSize();
+//                AsteroidCalculateBestStartEnd(); can swap start/end.  Dont want to do that when in the tunnel.
+            }
+            if (iMode==MODE_FINDORE)
+            {
+                iMode = MODE_MINE; // OLD MODE TRANSLATION
+                /*
+                if (current_state == 35)
+                {
+ //                   current_state = 31;
+                }
+                else if (current_state == 143) // testing
+                    current_state = 120; // go back to start of bore
+                else if (current_state == 145) // bore scans
+                    current_state = 140; // reinit bore scan
+                    */
+            }
+            else if(iMode == MODE_EXITINGASTEROID)
+            {
+                current_state = 0; // restart with init to make sure we are set up correctly
+                // as of 09/05/18 just need to make sure dBoreOnly is set
+
             }
             return ">";
         }
+
 
 
     }
